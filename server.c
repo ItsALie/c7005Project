@@ -241,7 +241,7 @@ int readClient(int sd)
                 strcat(line, filename);
                 strcat(line, space);
                 strcat(line, length);
-                send(sd, line, MAXLEN, 0);
+                sendto (sd, line, MAXLEN, 0,(struct sockaddr *)&client, client_len);
             }
 		}
         if (strncmp("START",buf, 5) == 0)
