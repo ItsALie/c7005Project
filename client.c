@@ -59,12 +59,12 @@
 #define MAXLEN			65000  	// Buffer length
 #define TRUE	1
 void clientConnection(int sd, struct sockaddr_in server);
-void sendCommand(char *sbuf, int sd);
-void getCommand();
-void startServer(char *command, char *filename, int fileLength, char *line, int clientSD);
-void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD);
+void sendCommand(char *sbuf, int sd, struct sockaddr_in server);
+void getCommand(char *sbuf, int sd, struct sockaddr_in server);
+void startServer(char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server);
+void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server);
 int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength);
-
+char  *host;
 
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: main
@@ -94,7 +94,7 @@ int main (int argc, char **argv)
 	int sd, port;
 	struct hostent	*hp;
 	struct sockaddr_in server;
-	char  *host, **pptr;
+	char **pptr;
 	char str[16];
 
 	struct	sockaddr_in client;
@@ -136,7 +136,7 @@ int main (int argc, char **argv)
 	// Bind local address to the socket
 	bzero((char *)&client, sizeof(client));
 	client.sin_family = AF_INET;
-	client.sin_port = htons(0);
+	client.sin_port = htons(port);
 	client.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	if (bind(sd, (struct sockaddr *)&client, sizeof(client)) == -1)
@@ -201,7 +201,7 @@ void clientConnection(int sd, struct sockaddr_in server)
 		// Transmit data through the socket
 		if (strncmp("SEND",sbuf, 4) == 0)
 		{
-			sendCommand(sbuf, sd);
+			sendCommand(sbuf, sd, server);
 		}
 		if (strncmp("GET",sbuf, 3) == 0)
 		{
@@ -221,7 +221,7 @@ void clientConnection(int sd, struct sockaddr_in server)
 				bp += n;
 				bytes_to_read -= n;
 			}
-			getCommand(rbuf, sd);
+			getCommand(rbuf, sd, server);
 		}
 		if (strncmp("CLOSE",sbuf, 5) == 0)
 		{
@@ -269,7 +269,7 @@ void clientConnection(int sd, struct sockaddr_in server)
 -- it finds the file, it gets the filelength. The function creates a line made up of SEND [filename] [filelength].
 -- The function then calls startServer.
 ----------------------------------------------------------------------------------------------------------------------*/
-void sendCommand(char *sbuf, int sd)
+void sendCommand(char *sbuf, int sd, struct sockaddr_in server)
 {
 	char * filename;
 	char line[MAXLEN];
@@ -307,7 +307,7 @@ void sendCommand(char *sbuf, int sd)
 		strcat(line, space);
 		strcat(line, length);
 
-		startServer(s, filename, fileLength, line, sd);
+		startServer(s, filename, fileLength, line, sd, server);
 	}
 }
 
@@ -334,7 +334,7 @@ void sendCommand(char *sbuf, int sd)
 -- it into the filename and filelength. The function creates a line made up of START [filename] [filelength].
 -- The function then calls startServer.
 ----------------------------------------------------------------------------------------------------------------------*/
-void getCommand(char *sbuf, int sd)
+void getCommand(char *sbuf, int sd, struct sockaddr_in server)
 {
 	char * filename;
 	char line[MAXLEN];
@@ -358,7 +358,7 @@ void getCommand(char *sbuf, int sd)
     strcat(line, space);
     strcat(line, length);
 
-    startServer(start, filename, fileLength, line, sd);
+    startServer(start, filename, fileLength, line, sd, server);
 }
 
 /*------------------------------------------------------------------------------------------------------------------
@@ -386,7 +386,7 @@ void getCommand(char *sbuf, int sd)
 -- Creates a server in the client application for the server program to listen to. Once created clientListen is
 -- called.
 ----------------------------------------------------------------------------------------------------------------------*/
-void startServer(char *command, char *filename, int fileLength, char *line, int clientSD)
+void startServer(char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server)
 {
 	int	sd, port;
 	struct	sockaddr_in clientServer;
@@ -410,7 +410,7 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 		perror ("Can't bind name to socket");
 		exit(1);
 	}
-	clientListen(sd, command, filename, fileLength, line, clientSD);
+	clientListen(sd, command, filename, fileLength, line, clientSD, server);
 }
 
 /*------------------------------------------------------------------------------------------------------------------
@@ -437,10 +437,11 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 -- NOTES:
 -- Listens for a connection from the server. Once the server connects, readServer is called.
 ----------------------------------------------------------------------------------------------------------------------*/
-void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD)
+void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server)
 {
 	struct	sockaddr_in serverClient;
-    socklen_t serverClient_len;
+    socklen_t server_len;
+	struct hostent	*hp;
     
     // Store server's information
 	bzero((char *)&serverClient, sizeof(serverClient));
@@ -453,9 +454,9 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 		exit(1);
 	}
 	bcopy(hp->h_addr, (char *)&serverClient.sin_addr, hp->h_length);
-    serverClient_len = sizeof(serverClient);
+    server_len = sizeof(server);
 
-    if (sendto (clientSD, line, MAXLEN, 0, (struct sockaddr *)&serverClient, serverClient_len) == -1)
+    if (sendto (clientSD, line, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
     {
         perror("sendto failure");
         exit(1);

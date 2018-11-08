@@ -288,7 +288,8 @@ void startClient(char *line, struct sockaddr_in client)
 	int n, bytes_to_read;
 	int sd, port;
 	struct hostent	*hp;
-	struct sockaddr_in server;
+	struct sockaddr_in serverClient;
+	struct sockaddr_in clientServer;
 	char  *host, *bp, buf[MAXLEN];
     socklen_t client_len;
 
@@ -312,26 +313,26 @@ void startClient(char *line, struct sockaddr_in client)
 	}
 
     // Store server's information
-	bzero((char *)&server, sizeof(server));
-	server.sin_family = AF_INET;
-	server.sin_port = htons(port);
+	bzero((char *)&clientServer, sizeof(clientServer));
+	clientServer.sin_family = AF_INET;
+	clientServer.sin_port = htons(port);
 
 	if ((hp = gethostbyname(host)) == NULL)
 	{
 		fprintf(stderr,"Can't get server's IP address\n");
 		exit(1);
 	}
-	bcopy(hp->h_addr, (char *)&server.sin_addr, hp->h_length);
+	bcopy(hp->h_addr, (char *)&clientServer.sin_addr, hp->h_length);
 
 	// Bind local address to the socket
-	bzero((char *)&client, sizeof(client));
-	client.sin_family = AF_INET;
-	client.sin_port = htons(0);
-	client.sin_addr.s_addr = htonl(INADDR_ANY);
+	bzero((char *)&serverClient, sizeof(serverClient));
+	serverClient.sin_family = AF_INET;
+	serverClient.sin_port = htons(port);
+	serverClient.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    client_len= sizeof(client);
+    client_len= sizeof(clientServer);
 
-	if (bind(sd, (struct sockaddr *)&client, sizeof(client)) == -1)
+	if (bind(sd, (struct sockaddr *)&serverClient, sizeof(serverClient)) == -1)
 	{
 		perror ("Can't bind name to socket");
 		exit(1);
@@ -342,7 +343,7 @@ void startClient(char *line, struct sockaddr_in client)
 		bytes_to_read = length - 1;
 		bp = buf;
 
-		while ((n = recvfrom (sd, bp, bytes_to_read, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+		while ((n = recvfrom (sd, bp, bytes_to_read, 0, (struct sockaddr *)&clientServer, &client_len)) < bytes_to_read)
 		{
 			bp += n;
 			bytes_to_read -= n;
@@ -370,7 +371,7 @@ void startClient(char *line, struct sockaddr_in client)
             fclose(fp);
             line[length] = 0;
 
-            sendto (sd, line, length, 0,(struct sockaddr *)&client, client_len);
+            sendto (sd, line, length, 0,(struct sockaddr *)&clientServer, client_len);
         }
 	}
 	close (sd);
