@@ -124,7 +124,7 @@ int main (int argc, char **argv)
     // Store server's information
 	bzero((char *)&server, sizeof(server));
 	server.sin_family = AF_INET;
-	server.sin_port = htons(port);
+	server.sin_port = htons(SERVER_UDP_PORT);
 
 	if ((hp = gethostbyname(host)) == NULL)
 	{
@@ -391,7 +391,7 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 	int	sd, port;
 	struct	sockaddr_in clientServer;
 
-	port = 7006;	// Get user specified port
+	port = 7008;	// Get user specified port
 
 	// Create a stream socket
     if ((sd = socket (AF_INET, SOCK_DGRAM, 0)) == -1)

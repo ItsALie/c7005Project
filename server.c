@@ -315,7 +315,7 @@ void startClient(char *line, struct sockaddr_in client)
     // Store server's information
 	bzero((char *)&clientServer, sizeof(clientServer));
 	clientServer.sin_family = AF_INET;
-	clientServer.sin_port = htons(port);
+	clientServer.sin_port = htons(7008);
 
 	if ((hp = gethostbyname(host)) == NULL)
 	{
