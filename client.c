@@ -442,6 +442,7 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 	struct	sockaddr_in serverClient;
     socklen_t server_len;
 	struct hostent	*hp;
+    int port  = 7006;
     
     // Store server's information
 	bzero((char *)&serverClient, sizeof(serverClient));
