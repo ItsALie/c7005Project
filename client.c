@@ -54,18 +54,23 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <sys/sendfile.h>
+#include <math.h> 
 
 #define SERVER_UDP_PORT		7005	// Default port
-#define MAXLEN			65000  	// Buffer length
+#define MAXLEN			2000  	// Buffer length
 #define TRUE	1
-void clientConnection(int sd, struct sockaddr_in server);
-void sendCommand(char *sbuf, int sd, struct sockaddr_in server);
-void getCommand(char *sbuf, int sd, struct sockaddr_in server);
-void startServer(char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server);
-void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server);
-int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength);
+void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in client);
+void sendCommand(char *sbuf, int sd, struct sockaddr_in server, struct sockaddr_in client);
+void getCommand(char *sbuf, int sd, struct sockaddr_in server, struct sockaddr_in client);
+void startServer(char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server,struct sockaddr_in client);
+void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server, struct sockaddr_in client,struct sockaddr_in clientServer);
+int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength,struct sockaddr_in clientServer);
 char  *host;
-
+void packetGen(int sequence, char * line, int fileLength, struct sockaddr_in server, struct sockaddr_in client);
+int countNewLine(FILE * fp);
+char packet[MAXLEN];
+char * localIPBuff;
+char localIP[16];
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: main
 --
@@ -96,9 +101,16 @@ int main (int argc, char **argv)
 	struct sockaddr_in server;
 	char **pptr;
 	char str[16];
-
+	char hostbuffer[256]; 
+	int hostname; 
+        hostname = gethostname(hostbuffer, sizeof(hostbuffer)); 
+	  
+        struct hostent *host_entry; 
 	struct	sockaddr_in client;
-
+	host_entry = gethostbyname(hostbuffer);
+	localIPBuff = inet_ntoa(*((struct in_addr*) 
+                         host_entry->h_addr_list[0])); 
+	strcpy(localIP,localIPBuff);
 	switch(argc)
 	{
 		case 2:
@@ -138,7 +150,7 @@ int main (int argc, char **argv)
 	client.sin_family = AF_INET;
 	client.sin_port = htons(port);
 	client.sin_addr.s_addr = htonl(INADDR_ANY);
-
+	
 	if (bind(sd, (struct sockaddr *)&client, sizeof(client)) == -1)
 	{
 		perror ("Can't bind name to socket");
@@ -148,7 +160,7 @@ int main (int argc, char **argv)
 	printf("Connected:    Server Name: %s\n", hp->h_name);
 	pptr = hp->h_addr_list;
 	printf("\t\tIP Address: %s\n", inet_ntop(hp->h_addrtype, *pptr, str, sizeof(str)));
-	clientConnection(sd, server);
+	clientConnection(sd, server,client);
 	return 0;
 }
 
@@ -178,7 +190,7 @@ int main (int argc, char **argv)
 -- If the user types CLOSE, the program sends the server CLOSE and returns.
 -- If the user types EXIT, the program sends the server EXIT and returns.
 ----------------------------------------------------------------------------------------------------------------------*/
-void clientConnection(int sd, struct sockaddr_in server)
+void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in client)
 {
 	int n, bytes_to_read;
 	char sbuf[MAXLEN], *bp, rbuf[MAXLEN];
@@ -201,7 +213,7 @@ void clientConnection(int sd, struct sockaddr_in server)
 		// Transmit data through the socket
 		if (strncmp("SEND",sbuf, 4) == 0)
 		{
-			sendCommand(sbuf, sd, server);
+			sendCommand(sbuf, sd, server,client);
 		}
 		if (strncmp("GET",sbuf, 3) == 0)
 		{
@@ -221,7 +233,7 @@ void clientConnection(int sd, struct sockaddr_in server)
 				bp += n;
 				bytes_to_read -= n;
 			}
-			getCommand(rbuf, sd, server);
+			getCommand(rbuf, sd, server, client);
 		}
 		if (strncmp("CLOSE",sbuf, 5) == 0)
 		{
@@ -269,7 +281,7 @@ void clientConnection(int sd, struct sockaddr_in server)
 -- it finds the file, it gets the filelength. The function creates a line made up of SEND [filename] [filelength].
 -- The function then calls startServer.
 ----------------------------------------------------------------------------------------------------------------------*/
-void sendCommand(char *sbuf, int sd, struct sockaddr_in server)
+void sendCommand(char *sbuf, int sd, struct sockaddr_in server,struct sockaddr_in client)
 {
 	char * filename;
 	char line[MAXLEN];
@@ -307,7 +319,7 @@ void sendCommand(char *sbuf, int sd, struct sockaddr_in server)
 		strcat(line, space);
 		strcat(line, length);
 
-		startServer(s, filename, fileLength, line, sd, server);
+		startServer(s, filename, fileLength, line, sd, server, client);
 	}
 }
 
@@ -334,7 +346,7 @@ void sendCommand(char *sbuf, int sd, struct sockaddr_in server)
 -- it into the filename and filelength. The function creates a line made up of START [filename] [filelength].
 -- The function then calls startServer.
 ----------------------------------------------------------------------------------------------------------------------*/
-void getCommand(char *sbuf, int sd, struct sockaddr_in server)
+void getCommand(char *sbuf, int sd, struct sockaddr_in server, struct sockaddr_in client)
 {
 	char * filename;
 	char line[MAXLEN];
@@ -358,7 +370,7 @@ void getCommand(char *sbuf, int sd, struct sockaddr_in server)
     strcat(line, space);
     strcat(line, length);
 
-    startServer(start, filename, fileLength, line, sd, server);
+    startServer(start, filename, fileLength, line, sd, server, client);
 }
 
 /*------------------------------------------------------------------------------------------------------------------
@@ -386,7 +398,7 @@ void getCommand(char *sbuf, int sd, struct sockaddr_in server)
 -- Creates a server in the client application for the server program to listen to. Once created clientListen is
 -- called.
 ----------------------------------------------------------------------------------------------------------------------*/
-void startServer(char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server)
+void startServer(char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server, struct sockaddr_in client)
 {
 	int	sd, port;
 	struct	sockaddr_in clientServer;
@@ -410,7 +422,7 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 		perror ("Can't bind name to socket");
 		exit(1);
 	}
-	clientListen(sd, command, filename, fileLength, line, clientSD, server);
+	clientListen(sd, command, filename, fileLength, line, clientSD, server,client,clientServer);
 }
 
 /*------------------------------------------------------------------------------------------------------------------
@@ -437,7 +449,7 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 -- NOTES:
 -- Listens for a connection from the server. Once the server connects, readServer is called.
 ----------------------------------------------------------------------------------------------------------------------*/
-void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server)
+void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server, struct sockaddr_in client, struct sockaddr_in clientServer)
 {
 	struct	sockaddr_in serverClient;
     socklen_t server_len;
@@ -456,14 +468,17 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 	}
 	bcopy(hp->h_addr, (char *)&serverClient.sin_addr, hp->h_length);
     server_len = sizeof(server);
-
-    if (sendto (clientSD, line, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
+    packetGen(0,line,fileLength,server,client);
+    int ackWin[1] = {0};
+    printf("\n %s \n",packet);
+    if (sendto (clientSD, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
     {
         perror("sendto failure");
         exit(1);
     }
-
-    readServer(sd, serverClient, command, filename, fileLength);
+    
+    memset(packet,0,MAXLEN);
+    readServer(sd, serverClient, command, filename, fileLength, clientServer);
 
     close(sd);
     return;
@@ -495,13 +510,14 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 -- If the command is START the client will wait for the server to send over the file. If the file doesn't
 -- exist, it'll be created. If it does exist the content will be overwritten. It then closes the file and socket.
 ----------------------------------------------------------------------------------------------------------------------*/
-int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength)
+int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength, struct sockaddr_in clientServer)
 {
     int n, bytes_to_read;
 	char *bp, buf[MAXLEN];
 	socklen_t client_len;
 
-    client_len= sizeof(client);
+    client_len= sizeof(client);printf("\n%d",fileLength);
+
 
 	while(TRUE)
 	{
@@ -516,15 +532,40 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
 			}
 			else
 			{
-				char * line  = malloc(fileLength + 1);
-				fread(line, fileLength, 1, fp);
-				fclose(fp);
+				
+				char * line  = (char *) malloc(1024);
+			
+				
 				line[fileLength] = 0;
-                if (sendto (new_sd, line, fileLength, 0,(struct sockaddr *)&client, client_len) == -1)
-                {
-                    perror ("sendto error");
-                    exit(1);
-                }
+				//int newlines = countNewLine(fp);
+				char window[MAXLEN][MAXLEN];
+				fpos_t filePos;
+				int ackWin[MAXLEN];
+				
+				
+				double  windowSize = ceil(fileLength/1024.0);
+				printf("\n %f",windowSize);
+				for(int index = 0;index < windowSize;index++)
+				{
+					
+
+					fread(line, 1024, 1, fp);
+					packetGen(index + 1,line,1024,client,clientServer);
+					strcpy(window[index],packet);
+					ackWin[index] = 0;
+					printf("\n%s",window[index]);
+				}
+				fclose(fp);
+				
+				for(int index = 0; index < ceil(windowSize/2.0);index++)
+				{
+		                	if (sendto (new_sd, window[index], MAXLEN, 0,(struct sockaddr *)&client, client_len) == -1)
+					{
+	                   			 perror ("sendto error");
+                   			 	exit(1);
+                			}
+				}
+
 			}
 		}
 		if (strncmp("START", command, 3) == 0)
@@ -548,4 +589,50 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
         close(new_sd);
 		return 0;
 	}
+}
+
+void packetGen(int sequence,char * line, int fileLength,struct sockaddr_in server,struct sockaddr_in client)
+{
+
+            char * temp = (char *) malloc(15);
+	    char space[2];//break point  character
+	    strcpy(space," ");
+	    sprintf (temp , "%d" ,sequence);//seqNum
+	    strcpy(packet,temp); 
+	    strcat(packet,space);
+	    sprintf(temp , "%d", 0);//ackNum
+	    strcat(packet,temp);
+	    strcat(packet,space);
+            strcat(packet,inet_ntoa(server.sin_addr));
+	    strcat(packet,space);
+	    sprintf(temp,"%d",htons( server.sin_port));
+	    strcat(packet,temp);
+	    strcat(packet,space);
+	    strcat(packet,localIP);
+	    printf("\n%s",localIP);
+	    strcat(packet,space);
+            sprintf(temp,"%d", htons(client.sin_port));
+	    strcat(packet,temp);
+	    strcat(packet,space);
+	    sprintf(temp,"%d", fileLength);
+	    strcat(packet,temp);
+	    strcat(packet,space);
+	    strcat(packet,line);
+}
+
+
+int countNewLine(FILE * fp)
+{
+    int count = 0;
+    char fileChar;
+    while(fileChar != EOF)
+    {
+	fileChar = getc(fp);
+	if(fileChar == '\n')
+	{
+	    count++;
+	}
+    }
+    return count;
+	
 }

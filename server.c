@@ -47,15 +47,18 @@
 #include <string.h>
 #include <netdb.h>
 #include <errno.h>
+#include "router_packet.h"
 
 #define SERVER_UDP_PORT 7005	// Default port
 #define TRUE	1
-#define MAXLEN			65000	//Buffer length
+#define MAXLEN			2000	//Buffer length
 
+struct packetStruct *packetS;
+char packet[MAXLEN];
 void serverListen (int	sd);
 int readClient(int sd);
 void startClient(char *line, struct sockaddr_in client);
-
+void genPacketStruct(char * buffer);
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: main
 --
@@ -81,7 +84,7 @@ int main (int argc, char **argv)
 {
 	int	sd, port;
 	struct	sockaddr_in server;
-
+	packetS = (struct packetStruct * )malloc(sizeof(struct packetStruct));
 	switch(argc)
 	{
 		case 1:
@@ -209,8 +212,11 @@ int readClient(int sd)
 			bp += n;
 			bytes_to_read -= n;
 		}
-
-		if (strncmp("SEND",buf, 4) == 0)
+		printf("\n%s\n",buf);
+		fflush(stdout);
+		genPacketStruct(buf);
+		printf("\n%s",packetS->data);
+		if (strncmp("SEND",packetS->data, 4) == 0)
 		{
 			startClient(buf, client);
 		}
@@ -338,16 +344,19 @@ void startClient(char *line, struct sockaddr_in client)
 		exit(1);
 	}
 
-	if (strncmp("SEND",command, 4) == 0)
+	if (strncmp("SEND",packetS->data, 4) == 0)
 	{
-		bytes_to_read = length - 1;
+		bytes_to_read = MAXLEN;
 		bp = buf;
-
+		printf("\n I AM HERE");
 		while ((n = recvfrom (sd, bp, bytes_to_read, 0, (struct sockaddr *)&clientServer, &client_len)) < bytes_to_read)
 		{
 			bp += n;
 			bytes_to_read -= n;
 		}
+		
+		printf("\n %s", buf);
+		fflush(stdout);
 		FILE *fp = fopen(filename, "wb+");
 		if (fp != NULL)
 		{
@@ -375,4 +384,27 @@ void startClient(char *line, struct sockaddr_in client)
         }
 	}
 	close (sd);
+}
+
+void genPacketStruct(char *buffer)
+{
+	strcpy(packetS->seqNum,strtok(buffer," "));
+	strcpy(packetS->ackNum,strtok(NULL," "));
+	strcpy(packetS->dest,strtok(NULL," "));
+	strcpy(packetS->destPrt,strtok(NULL," "));
+	strcpy(packetS->src,strtok(NULL," "));
+	strcpy(packetS->srcPrt,strtok(NULL," "));
+	strcpy(packetS->dataLength,strtok(NULL," "));
+	strcpy(packetS->data,strtok(NULL," "));
+	char * temp = strtok(NULL," ");
+	char space[2] = " ";
+	while(temp != NULL)
+	{
+		strcat(packetS->data,space);
+		strcat(packetS->data,temp);
+		
+		temp = strtok(NULL," ");
+	}
+	printf("\n%s",packetS->data);
+	
 }
