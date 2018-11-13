@@ -1,15 +1,16 @@
 #ifndef ROUTER_PACKET_
 #define ROUTER_PACKET_
-	struct packet
+	struct packetStruct
 	{
 	    
-            int dataLength;
-            int seqNum;
-            int ackNum;
+            
+            char seqNum[10];
+            char ackNum[10];
             char dest[16];
-            int destPrt;
+            char destPrt[5];
             char src[16];
-            int srcPrt;
+            char srcPrt[5];
+	    char dataLength[5];
 	    char data[1024];
 	};
 #endif
