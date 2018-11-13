@@ -144,7 +144,7 @@ int main (int argc, char **argv)
 	// Bind local address to the socket
 	bzero((char *)&serverClient, sizeof(serverClient));
 	serverClient.sin_family = AF_INET;
-	serverClient.sin_port = htons(7006);
+	serverClient.sin_port = htons(7008);
 	serverClient.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	if (bind(datasd, (struct sockaddr *)&serverClient, sizeof(serverClient)) == -1)
@@ -233,6 +233,12 @@ int readClient(int sd)
 
     char s[5];
 	char space[2];
+	char syn[4];
+	char synack[7];
+	char ack[4];
+	strcpy(syn, "SYN");
+	strcpy(synack, "SYNACK");
+	strcpy(ack, "ACK");
 	strcpy(s, "SEND");
 	strcpy(space, " ");
     client_len = sizeof(client);
@@ -247,22 +253,28 @@ int readClient(int sd)
         bp += n;
         bytes_to_read -= n;
     }
+	printf("\n%s", buf);
+	fflush(stdout);
     genPacketStruct(buf);
-    if (strncmp("SYN",packetS->data, 3) == 0)
+    if (strncmp(syn,packetS->data, 3) == 0)
     {
-        startClient(client);
-    }
-    //SYNACK
-    packetGen("SYNACK", 0, client, server);
-    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
-    {
-        perror("sendto failure");
-        exit(1);
-    }
+		printf("\n%s", buf);
+		fflush(stdout);
+		//SYNACK
+	    packetGen(synack, 0, client, server);
+		printf("\n%s", packet);
+		fflush(stdout);
+	    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
+	    {
+	        perror("sendto failure");
+	        exit(1);
+	    }
+	}
     //ACK
 	bp = buf;
     bytes_to_read = MAXLEN;
-
+	printf("\n%s", packet);
+	fflush(stdout);
     while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
     {
         bp += n;
@@ -297,7 +309,7 @@ int readClient(int sd)
             }
         }
     }
-	return 0;
+	return 1;
 }
 
 /*------------------------------------------------------------------------------------------------------------------
@@ -399,6 +411,7 @@ void genPacketStruct(char *buffer)
 
 void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockaddr_in src)
 {
+	printf("\n%s", line);
     char * temp = (char *) malloc(15);
     char space[2];//break point  character
     strcpy(space," ");
@@ -423,4 +436,5 @@ void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockad
     strcat(packet,temp);
     strcat(packet,space);
     strcat(packet,line);
+	free(temp);
 }

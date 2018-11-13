@@ -109,6 +109,7 @@ int main (int argc, char **argv)
 	char hostbuffer[256];
 
 	gethostname(hostbuffer, sizeof(hostbuffer));
+	packetS = (struct packetStruct * )malloc(sizeof(struct packetStruct));
 
     struct hostent *host_entry;
 	struct	sockaddr_in client;
@@ -168,6 +169,7 @@ int main (int argc, char **argv)
 	pptr = hp->h_addr_list;
 	printf("\t\tIP Address: %s\n", inet_ntop(hp->h_addrtype, *pptr, str, sizeof(str)));
 	clientConnection(sd, server,client);
+	free(packetS);
 	return 0;
 }
 
@@ -227,6 +229,7 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
         bp += n;
         bytes_to_read -= n;
     }
+	printf("%s\n", buf);
     genPacketStruct(buf);
 
     if (strncmp("SYNACK",packetS->data, 6) == 0)
@@ -370,7 +373,7 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 	int	sd, port;
 	struct	sockaddr_in clientServer;
 
-	port = 7006;	// Get user specified port
+	port = 7008;	// Get user specified port
 
 	// Create a stream socket
     if ((sd = socket (AF_INET, SOCK_DGRAM, 0)) == -1)
@@ -547,7 +550,6 @@ void packetGen(char * line, int fileLength,struct sockaddr_in server,struct sock
     strcat(packet,temp);
     strcat(packet,space);
     strcat(packet,localIP);
-    printf("\n%s",localIP);
     strcat(packet,space);
     sprintf(temp,"%d", htons(client.sin_port));
     strcat(packet,temp);
@@ -560,7 +562,7 @@ void packetGen(char * line, int fileLength,struct sockaddr_in server,struct sock
 
 void genPacketStruct(char *buffer)
 {
-	strcpy(packetS->seqNum,strtok(buffer," "));
+	strcpy(packetS->seqNum,strtok(buffer, " "));
 	strcpy(packetS->ackNum,strtok(NULL," "));
 	strcpy(packetS->dest,strtok(NULL," "));
 	strcpy(packetS->destPrt,strtok(NULL," "));
