@@ -54,7 +54,8 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <sys/sendfile.h>
-#include <math.h> 
+#include <math.h>
+#include "router_packet.h"
 
 #define SERVER_UDP_PORT		7005	// Default port
 #define MAXLEN			2000  	// Buffer length
@@ -65,11 +66,16 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server, struct sockaddr_in client,struct sockaddr_in clientServer);
 int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength,struct sockaddr_in clientServer);
 char  *host;
-void packetGen(int sequence, char * line, int fileLength, struct sockaddr_in server, struct sockaddr_in client);
+void packetGen(char * line, int fileLength, struct sockaddr_in server, struct sockaddr_in client);
+void genPacketStruct(char * buffer);
 int countNewLine(FILE * fp);
+
+struct packetStruct *packetS;
 char packet[MAXLEN];
 char * localIPBuff;
 char localIP[16];
+int seqNum;
+int ackNum;
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: main
 --
@@ -100,16 +106,18 @@ int main (int argc, char **argv)
 	struct sockaddr_in server;
 	char **pptr;
 	char str[16];
-	char hostbuffer[256]; 
-	int hostname; 
-        hostname = gethostname(hostbuffer, sizeof(hostbuffer)); 
-	  
-        struct hostent *host_entry; 
+	char hostbuffer[256];
+
+	gethostname(hostbuffer, sizeof(hostbuffer));
+
+    struct hostent *host_entry;
 	struct	sockaddr_in client;
 	host_entry = gethostbyname(hostbuffer);
-	localIPBuff = inet_ntoa(*((struct in_addr*) 
-    host_entry->h_addr_list[0])); 
+	localIPBuff = inet_ntoa(*((struct in_addr*)
+    host_entry->h_addr_list[0]));
 	strcpy(localIP,localIPBuff);
+    seqNum = 0;
+    ackNum = 0;
 	switch(argc)
 	{
 		case 2:
@@ -149,7 +157,7 @@ int main (int argc, char **argv)
 	client.sin_family = AF_INET;
 	client.sin_port = htons(port);
 	client.sin_addr.s_addr = htonl(INADDR_ANY);
-	
+
 	if (bind(sd, (struct sockaddr *)&client, sizeof(client)) == -1)
 	{
 		perror ("Can't bind name to socket");
@@ -191,15 +199,45 @@ int main (int argc, char **argv)
 ----------------------------------------------------------------------------------------------------------------------*/
 void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in client)
 {
-	int n, bytes_to_read;
-	char sbuf[MAXLEN], *bp, rbuf[MAXLEN];
+	char sbuf[MAXLEN];
 	char s[5];
 	char space[2];
 	strcpy(s, "SEND");
 	strcpy(space, " ");
     socklen_t server_len;
 
+    char	*bp;
+	int	n, bytes_to_read;
+    char	buf[MAXLEN];
     server_len = sizeof(server);
+
+    //Three way handshake
+    packetGen("SYN", 0, server, client);
+    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
+    {
+        perror("sendto failure");
+        exit(1);
+    }
+
+	bp = buf;
+    bytes_to_read = MAXLEN;
+    //SYNACK
+    while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&server, &server_len)) < bytes_to_read)
+    {
+        bp += n;
+        bytes_to_read -= n;
+    }
+    genPacketStruct(buf);
+
+    if (strncmp("SYNACK",packetS->data, 6) == 0)
+    {
+        packetGen("ACK", 0, server, client);
+        if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
+        {
+            perror("sendto failure");
+            exit(1);
+        }
+    }
 
 	while (TRUE)
 	{
@@ -214,7 +252,8 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
 		}
 		if (strncmp("CLOSE",sbuf, 5) == 0)
 		{
-            if (sendto (sd, sbuf, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
+			packetGen(sbuf, 0, server, client);
+            if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
             {
                 perror("sendto failure");
                 exit(1);
@@ -224,7 +263,8 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
 		}
 		if (strncmp("EXIT",sbuf, 4) == 0)
 		{
-            if (sendto (sd, sbuf, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
+			packetGen(sbuf, 0, server, client);
+            if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
             {
                 perror("sendto failure");
                 exit(1);
@@ -330,7 +370,7 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 	int	sd, port;
 	struct	sockaddr_in clientServer;
 
-	port = 7008;	// Get user specified port
+	port = 7006;	// Get user specified port
 
 	// Create a stream socket
     if ((sd = socket (AF_INET, SOCK_DGRAM, 0)) == -1)
@@ -382,7 +422,7 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
     socklen_t server_len;
 	struct hostent	*hp;
     int port  = 7006;
-    
+
     // Store server's information
 	bzero((char *)&serverClient, sizeof(serverClient));
 	serverClient.sin_family = AF_INET;
@@ -395,7 +435,7 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 	}
 	bcopy(hp->h_addr, (char *)&serverClient.sin_addr, hp->h_length);
     server_len = sizeof(server);
-    packetGen(0,line,fileLength,server,client);
+    packetGen(line,fileLength,server,client);
     int ackWin[1] = {0};
     printf("\n %s \n",packet);
     if (sendto (clientSD, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
@@ -403,7 +443,7 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
         perror("sendto failure");
         exit(1);
     }
-    
+
     memset(packet,0,MAXLEN);
     readServer(sd, serverClient, command, filename, fileLength, clientServer);
 
@@ -439,8 +479,6 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 ----------------------------------------------------------------------------------------------------------------------*/
 int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength, struct sockaddr_in clientServer)
 {
-    int n, bytes_to_read;
-	char *bp, buf[MAXLEN];
 	socklen_t client_len;
 
     client_len= sizeof(client);printf("\n%d",fileLength);
@@ -462,21 +500,20 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
                 line[fileLength] = 0;
 				//int newlines = countNewLine(fp);
 				char window[MAXLEN][MAXLEN];
-				fpos_t filePos;
 				int ackWin[MAXLEN];
-				
+
 				double  windowSize = ceil(fileLength/1024.0);
 				printf("\n %f",windowSize);
 				for(int index = 0;index < windowSize;index++)
 				{
 					fread(line, 1024, 1, fp);
-					packetGen(index + 1,line,1024,client,clientServer);
+					packetGen(line,1024,client,clientServer);
 					strcpy(window[index],packet);
 					ackWin[index] = 0;
 					printf("\n%s",window[index]);
 				}
 				fclose(fp);
-				
+
 				for(int index = 0; index < ceil(windowSize/2.0);index++)
 				{
                     if (sendto (new_sd, window[index], MAXLEN, 0,(struct sockaddr *)&client, client_len) == -1)
@@ -493,15 +530,15 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
 	}
 }
 
-void packetGen(int sequence,char * line, int fileLength,struct sockaddr_in server,struct sockaddr_in client)
+void packetGen(char * line, int fileLength,struct sockaddr_in server,struct sockaddr_in client)
 {
     char * temp = (char *) malloc(15);
     char space[2];//break point  character
     strcpy(space," ");
-    sprintf (temp , "%d" ,sequence);//seqNum
-    strcpy(packet,temp); 
+    sprintf (temp , "%d" ,seqNum);//seqNum
+    strcpy(packet,temp);
     strcat(packet,space);
-    sprintf(temp , "%d", 0);//ackNum
+    sprintf(temp , "%d", ackNum);//ackNum
     strcat(packet,temp);
     strcat(packet,space);
     strcat(packet,inet_ntoa(server.sin_addr));
@@ -521,6 +558,27 @@ void packetGen(int sequence,char * line, int fileLength,struct sockaddr_in serve
     strcat(packet,line);
 }
 
+void genPacketStruct(char *buffer)
+{
+	strcpy(packetS->seqNum,strtok(buffer," "));
+	strcpy(packetS->ackNum,strtok(NULL," "));
+	strcpy(packetS->dest,strtok(NULL," "));
+	strcpy(packetS->destPrt,strtok(NULL," "));
+	strcpy(packetS->src,strtok(NULL," "));
+	strcpy(packetS->srcPrt,strtok(NULL," "));
+	strcpy(packetS->dataLength,strtok(NULL," "));
+	strcpy(packetS->data,strtok(NULL," "));
+	char * temp = strtok(NULL," ");
+	char space[2] = " ";
+	while(temp != NULL)
+	{
+		strcat(packetS->data,space);
+		strcat(packetS->data,temp);
+
+		temp = strtok(NULL," ");
+	}
+}
+
 int countNewLine(FILE * fp)
 {
     int count = 0;
@@ -534,5 +592,5 @@ int countNewLine(FILE * fp)
 	}
     }
     return count;
-	
+
 }

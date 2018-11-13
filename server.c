@@ -55,9 +55,18 @@
 
 struct packetStruct *packetS;
 char packet[MAXLEN];
+struct sockaddr_in serverClient;
+struct	sockaddr_in server;
+int datasd;
+int seqNum;
+int ackNum;
+char localIP[16];
+char * localIPBuff;
+
 void serverListen (int	sd);
 int readClient(int sd);
 void startClient(struct sockaddr_in client);
+void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockaddr_in src);
 void genPacketStruct(char * buffer);
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: main
@@ -83,7 +92,8 @@ void genPacketStruct(char * buffer);
 int main (int argc, char **argv)
 {
 	int	sd, port;
-	struct	sockaddr_in server;
+	char hostbuffer[256];
+	struct hostent *host_entry;
 	packetS = (struct packetStruct * )malloc(sizeof(struct packetStruct));
 	switch(argc)
 	{
@@ -97,6 +107,14 @@ int main (int argc, char **argv)
 			fprintf(stderr, "Usage: %s [port]\n", argv[0]);
 			exit(1);
    	}
+    seqNum = 0;
+    ackNum = 0;
+
+	gethostname(hostbuffer, sizeof(hostbuffer));
+	host_entry = gethostbyname(hostbuffer);
+	localIPBuff = inet_ntoa(*((struct in_addr*)
+    host_entry->h_addr_list[0]));
+	strcpy(localIP,localIPBuff);
 
 	// Create a datagram socket
 	if ((sd = socket (AF_INET, SOCK_DGRAM, 0)) == -1)
@@ -111,6 +129,25 @@ int main (int argc, char **argv)
 	server.sin_port = htons(port);
 	server.sin_addr.s_addr = htonl(INADDR_ANY);
 	if (bind (sd, (struct sockaddr *)&server, sizeof(server)) == -1)
+	{
+		perror ("Can't bind name to socket");
+		exit(1);
+	}
+
+	// Create a datagram socket
+	if ((datasd = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+	{
+		perror ("Can't create a socket\n");
+		exit(1);
+	}
+
+	// Bind local address to the socket
+	bzero((char *)&serverClient, sizeof(serverClient));
+	serverClient.sin_family = AF_INET;
+	serverClient.sin_port = htons(7006);
+	serverClient.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if (bind(datasd, (struct sockaddr *)&serverClient, sizeof(serverClient)) == -1)
 	{
 		perror ("Can't bind name to socket");
 		exit(1);
@@ -151,6 +188,7 @@ void serverListen (int	sd)
 		if (retnum == 1)
 		{
 			close(sd);
+			close (datasd);
 			return;
 		}
 	}
@@ -189,7 +227,6 @@ int readClient(int sd)
 	int	n, bytes_to_read;
 	char line[MAXLEN];
 	memset(line, '\0', sizeof(line));
-	char length[MAXLEN];
     char	buf[MAXLEN];
 	struct	sockaddr_in client;
 	socklen_t client_len;
@@ -200,33 +237,67 @@ int readClient(int sd)
 	strcpy(space, " ");
     client_len = sizeof(client);
 
+    //Three way handshake
 	bp = buf;
-	while(TRUE)
-	{
-		bytes_to_read = MAXLEN;
+    bytes_to_read = MAXLEN;
 
-		while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
-		{
-			bp += n;
-			bytes_to_read -= n;
-		}
-		printf("\n%s\n",buf);
-		fflush(stdout);
-		genPacketStruct(buf);
-		printf("\n%s",packetS->data);
-		if (strncmp("SEND",packetS->data, 4) == 0)
-		{
-			startClient(client);
-		}
-		if (strncmp("CLOSE",buf, 5) == 0)
-		{
-			return 0;
-		}
-		if (strncmp("EXIT",buf, 4) == 0)
-		{
-			return 1;
-		}
-	}
+    //SYN
+    while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+    {
+        bp += n;
+        bytes_to_read -= n;
+    }
+    genPacketStruct(buf);
+    if (strncmp("SYN",packetS->data, 3) == 0)
+    {
+        startClient(client);
+    }
+    //SYNACK
+    packetGen("SYNACK", 0, client, server);
+    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
+    {
+        perror("sendto failure");
+        exit(1);
+    }
+    //ACK
+	bp = buf;
+    bytes_to_read = MAXLEN;
+
+    while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+    {
+        bp += n;
+        bytes_to_read -= n;
+    }
+    printf("\n%s",packetS->data);
+    if (strncmp("ACK",packetS->data, 3) == 0)
+    {
+        while(TRUE)
+        {
+            bp = buf;
+            bytes_to_read = MAXLEN;
+
+            while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+            {
+                bp += n;
+                bytes_to_read -= n;
+            }
+            genPacketStruct(buf);
+            printf("\n%s",packetS->data);
+            if (strncmp("SEND",packetS->data, 4) == 0)
+            {
+                startClient(client);
+            }
+            else if (strncmp("CLOSE",packetS->data, 5) == 0)
+            {
+                return 0;
+            }
+            else if (strncmp("EXIT",packetS->data, 4) == 0)
+            {
+                return 1;
+            }
+        }
+    }
+	return 0;
 }
 
 /*------------------------------------------------------------------------------------------------------------------
@@ -256,36 +327,24 @@ int readClient(int sd)
 void startClient(struct sockaddr_in client)
 {
 	int n, bytes_to_read;
-	int sd, port;
+	int port;
 	struct hostent	*hp;
-	struct sockaddr_in serverClient;
-	struct sockaddr_in clientServer;
 	char  *host, *bp, buf[MAXLEN];
     socklen_t client_len;
+	struct sockaddr_in clientServer;
 
-	char * command;
 	char * filename;
-	char * fileLength;
 
-	command = strtok (packetS->data," ");
+	filename = strtok (packetS->data," ");
 	filename = strtok (NULL, " ");
-	fileLength = strtok (NULL, " ");
-	int length = atoi(fileLength);
 
 	host =	inet_ntoa(client.sin_addr);	// Host name
 	port =	7006;
 
-    // Create a datagram socket
-	if ((sd = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-	{
-		perror ("Can't create a socket\n");
-		exit(1);
-	}
-
     // Store server's information
 	bzero((char *)&clientServer, sizeof(clientServer));
 	clientServer.sin_family = AF_INET;
-	clientServer.sin_port = htons(7008);
+	clientServer.sin_port = htons(7006);
 
 	if ((hp = gethostbyname(host)) == NULL)
 	{
@@ -294,30 +353,18 @@ void startClient(struct sockaddr_in client)
 	}
 	bcopy(hp->h_addr, (char *)&clientServer.sin_addr, hp->h_length);
 
-	// Bind local address to the socket
-	bzero((char *)&serverClient, sizeof(serverClient));
-	serverClient.sin_family = AF_INET;
-	serverClient.sin_port = htons(port);
-	serverClient.sin_addr.s_addr = htonl(INADDR_ANY);
-
     client_len= sizeof(clientServer);
-
-	if (bind(sd, (struct sockaddr *)&serverClient, sizeof(serverClient)) == -1)
-	{
-		perror ("Can't bind name to socket");
-		exit(1);
-	}
 
 	if (strncmp("SEND",packetS->data, 4) == 0)
 	{
 		bytes_to_read = MAXLEN;
 		bp = buf;
-		while ((n = recvfrom (sd, bp, bytes_to_read, 0, (struct sockaddr *)&clientServer, &client_len)) < bytes_to_read)
+		while ((n = recvfrom (datasd, bp, bytes_to_read, 0, (struct sockaddr *)&clientServer, &client_len)) < bytes_to_read)
 		{
 			bp += n;
 			bytes_to_read -= n;
 		}
-		
+
 		printf("\n %s", buf);
 		fflush(stdout);
 		FILE *fp = fopen(filename, "wb+");
@@ -327,7 +374,6 @@ void startClient(struct sockaddr_in client)
 			fclose(fp);
 		}
 	}
-	close (sd);
 }
 
 void genPacketStruct(char *buffer)
@@ -346,9 +392,35 @@ void genPacketStruct(char *buffer)
 	{
 		strcat(packetS->data,space);
 		strcat(packetS->data,temp);
-		
+
 		temp = strtok(NULL," ");
 	}
-	printf("\n%s",packetS->data);
-	
+}
+
+void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockaddr_in src)
+{
+    char * temp = (char *) malloc(15);
+    char space[2];//break point  character
+    strcpy(space," ");
+    sprintf (temp , "%d" ,seqNum);//seqNum
+    strcpy(packet,temp);
+    strcat(packet,space);
+    sprintf(temp , "%d", ackNum);//ackNum
+    strcat(packet,temp);
+    strcat(packet,space);
+    strcat(packet,inet_ntoa(dest.sin_addr));
+    strcat(packet,space);
+    sprintf(temp,"%d",htons( dest.sin_port));
+    strcat(packet,temp);
+    strcat(packet,space);
+    strcat(packet,localIP);
+    printf("\n%s",localIP);
+    strcat(packet,space);
+    sprintf(temp,"%d", htons(src.sin_port));
+    strcat(packet,temp);
+    strcat(packet,space);
+    sprintf(temp,"%d", fileLength);
+    strcat(packet,temp);
+    strcat(packet,space);
+    strcat(packet,line);
 }
