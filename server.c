@@ -57,7 +57,7 @@ struct packetStruct *packetS;
 char packet[MAXLEN];
 void serverListen (int	sd);
 int readClient(int sd);
-void startClient(char *line, struct sockaddr_in client);
+void startClient(struct sockaddr_in client);
 void genPacketStruct(char * buffer);
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: main
@@ -195,10 +195,8 @@ int readClient(int sd)
 	socklen_t client_len;
 
     char s[5];
-	char g[4];
 	char space[2];
 	strcpy(s, "SEND");
-	strcpy(g, "GET");
 	strcpy(space, " ");
     client_len = sizeof(client);
 
@@ -218,42 +216,8 @@ int readClient(int sd)
 		printf("\n%s",packetS->data);
 		if (strncmp("SEND",packetS->data, 4) == 0)
 		{
-			startClient(buf, client);
+			startClient(client);
 		}
-		if (strncmp("GET",buf, 3) == 0)
-		{
-            char * filename;
-            filename = strtok (buf," ");
-            if (filename != NULL)
-            {
-                filename = strtok (NULL, " ");
-            }
-
-            FILE *fp;
-            if ((fp = fopen(filename, "rb")) == NULL)
-            {
-                if (!fp)perror("fopen");
-                printf("Could not open file %s\n", filename);
-            }
-            else
-            {
-                fseek(fp, 0, SEEK_END);
-                int fileLength = ftell(fp);
-                sprintf(length, "%d", fileLength);
-
-                fclose(fp);
-                strcpy(line, g);
-                strcat(line, space);
-                strcat(line, filename);
-                strcat(line, space);
-                strcat(line, length);
-                sendto (sd, line, MAXLEN, 0,(struct sockaddr *)&client, client_len);
-            }
-		}
-        if (strncmp("START",buf, 5) == 0)
-        {
-			startClient(buf, client);
-        }
 		if (strncmp("CLOSE",buf, 5) == 0)
 		{
 			return 0;
@@ -289,7 +253,7 @@ int readClient(int sd)
 -- If the file does exist, it will be overwritten.
 -- If the command is START, the server will send the file to the client.
 ----------------------------------------------------------------------------------------------------------------------*/
-void startClient(char *line, struct sockaddr_in client)
+void startClient(struct sockaddr_in client)
 {
 	int n, bytes_to_read;
 	int sd, port;
@@ -303,7 +267,7 @@ void startClient(char *line, struct sockaddr_in client)
 	char * filename;
 	char * fileLength;
 
-	command = strtok (line," ");
+	command = strtok (packetS->data," ");
 	filename = strtok (NULL, " ");
 	fileLength = strtok (NULL, " ");
 	int length = atoi(fileLength);
@@ -348,7 +312,6 @@ void startClient(char *line, struct sockaddr_in client)
 	{
 		bytes_to_read = MAXLEN;
 		bp = buf;
-		printf("\n I AM HERE");
 		while ((n = recvfrom (sd, bp, bytes_to_read, 0, (struct sockaddr *)&clientServer, &client_len)) < bytes_to_read)
 		{
 			bp += n;
@@ -363,25 +326,6 @@ void startClient(char *line, struct sockaddr_in client)
 			fputs(bp, fp);
 			fclose(fp);
 		}
-	}
-	if (strncmp("START",command, 3) == 0)
-	{
-        FILE *fp;
-
-        if ((fp = fopen(filename, "rb")) == NULL)
-        {
-            if (!fp)perror("fopen");
-            printf("Could not open file %s\n", filename);
-        }
-        else
-        {
-            line  = malloc(length + 1);
-            fread(line, length, 1, fp);
-            fclose(fp);
-            line[length] = 0;
-
-            sendto (sd, line, length, 0,(struct sockaddr *)&clientServer, client_len);
-        }
 	}
 	close (sd);
 }
