@@ -144,7 +144,7 @@ int main (int argc, char **argv)
 	// Bind local address to the socket
 	bzero((char *)&serverClient, sizeof(serverClient));
 	serverClient.sin_family = AF_INET;
-	serverClient.sin_port = htons(7008);
+	serverClient.sin_port = htons(7006);
 	serverClient.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	if (bind(datasd, (struct sockaddr *)&serverClient, sizeof(serverClient)) == -1)
@@ -253,17 +253,12 @@ int readClient(int sd)
         bp += n;
         bytes_to_read -= n;
     }
-	printf("\n%s", buf);
-	fflush(stdout);
+	printf("%s\n", buf);
     genPacketStruct(buf);
     if (strncmp(syn,packetS->data, 3) == 0)
     {
-		printf("\n%s", buf);
-		fflush(stdout);
 		//SYNACK
 	    packetGen(synack, 0, client, server);
-		printf("\n%s", packet);
-		fflush(stdout);
 	    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
 	    {
 	        perror("sendto failure");
@@ -273,40 +268,37 @@ int readClient(int sd)
     //ACK
 	bp = buf;
     bytes_to_read = MAXLEN;
-	printf("\n%s", packet);
-	fflush(stdout);
     while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
     {
         bp += n;
         bytes_to_read -= n;
     }
-    printf("\n%s",packetS->data);
-    if (strncmp("ACK",packetS->data, 3) == 0)
+	printf("ACK: %s\n", buf);
+    while(TRUE)
     {
-        while(TRUE)
-        {
-            bp = buf;
-            bytes_to_read = MAXLEN;
+        bp = buf;
+        bytes_to_read = MAXLEN;
 
-            while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
-            {
-                bp += n;
-                bytes_to_read -= n;
-            }
-            genPacketStruct(buf);
-            printf("\n%s",packetS->data);
-            if (strncmp("SEND",packetS->data, 4) == 0)
-            {
-                startClient(client);
-            }
-            else if (strncmp("CLOSE",packetS->data, 5) == 0)
-            {
-                return 0;
-            }
-            else if (strncmp("EXIT",packetS->data, 4) == 0)
-            {
-                return 1;
-            }
+        while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+        {
+            bp += n;
+            bytes_to_read -= n;
+        }
+        genPacketStruct(buf);
+        printf("Packet Data: %s\n",packetS->data);
+        if (strncmp("SEND",packetS->data, 4) == 0)
+        {
+			printf("In SEND\n");
+			startClient(client);
+        }
+        else if (strncmp("CLOSE",packetS->data, 5) == 0)
+        {
+            return 0;
+        }
+        else if (strncmp("EXIT",packetS->data, 4) == 0)
+        {
+			free(packetS);
+            return 1;
         }
     }
 	return 1;
@@ -344,19 +336,22 @@ void startClient(struct sockaddr_in client)
 	char  *host, *bp, buf[MAXLEN];
     socklen_t client_len;
 	struct sockaddr_in clientServer;
+	char window[MAXLEN][MAXLEN];
+	char ack[4];
+	strcpy(ack, "ACK");
+	int maxIndex = 0;
 
-	char * filename;
-
-	filename = strtok (packetS->data," ");
-	filename = strtok (NULL, " ");
+	char filename[MAXLEN];
+	strcpy(filename, strtok (packetS->data," "));
+	strcpy(filename, strtok (NULL, " "));
 
 	host =	inet_ntoa(client.sin_addr);	// Host name
-	port =	7006;
+	port =	7008;
 
     // Store server's information
 	bzero((char *)&clientServer, sizeof(clientServer));
 	clientServer.sin_family = AF_INET;
-	clientServer.sin_port = htons(7006);
+	clientServer.sin_port = htons(port);
 
 	if ((hp = gethostbyname(host)) == NULL)
 	{
@@ -369,27 +364,56 @@ void startClient(struct sockaddr_in client)
 
 	if (strncmp("SEND",packetS->data, 4) == 0)
 	{
-		bytes_to_read = MAXLEN;
-		bp = buf;
-		while ((n = recvfrom (datasd, bp, bytes_to_read, 0, (struct sockaddr *)&clientServer, &client_len)) < bytes_to_read)
+		while (TRUE)
 		{
-			bp += n;
-			bytes_to_read -= n;
-		}
-
-		printf("\n %s", buf);
-		fflush(stdout);
-		FILE *fp = fopen(filename, "wb+");
-		if (fp != NULL)
-		{
-			fputs(bp, fp);
-			fclose(fp);
+			bytes_to_read = MAXLEN;
+			memset(buf, 0, MAXLEN);
+			bp = buf;
+			while ((n = recvfrom (datasd, bp, bytes_to_read, 0, (struct sockaddr *)&clientServer, &client_len)) < bytes_to_read)
+			{
+				bp += n;
+				bytes_to_read -= n;
+			}
+			printf("%s\n", buf);
+			genPacketStruct(buf);
+			//FIN sent
+			if (strncmp("FIN",packetS->data, 3) == 0)
+			{
+				printf("FIN sent.\n");
+				printf("%s\n", filename);
+				FILE *fp = fopen(filename, "wb+");
+				if (fp != NULL)
+				{
+					for (int i = 0; i <= maxIndex; i++)
+					{
+						fputs(window[i], fp);
+					}
+					fclose(fp);
+				}
+				return;
+			}
+			printf("%s\n", packetS->seqNum);
+			ackNum = atoi(packetS->seqNum);
+			packetGen(ack, 0, client, server);
+		    if (sendto (datasd, packet, MAXLEN, 0, (struct sockaddr *)&clientServer, client_len) == -1)
+		    {
+		        perror("sendto failure");
+		        exit(1);
+		    }
+			strcpy(window[ackNum], packetS->data);
+			if (ackNum > maxIndex)
+			{
+				maxIndex = ackNum;
+			}
 		}
 	}
 }
 
 void genPacketStruct(char *buffer)
 {
+	free(packetS);
+	packetS = (struct packetStruct * )malloc(sizeof(struct packetStruct));
+
 	strcpy(packetS->seqNum,strtok(buffer," "));
 	strcpy(packetS->ackNum,strtok(NULL," "));
 	strcpy(packetS->dest,strtok(NULL," "));
@@ -407,11 +431,12 @@ void genPacketStruct(char *buffer)
 
 		temp = strtok(NULL," ");
 	}
+	printf("SeqNum: %s\n", packetS->seqNum);
 }
 
 void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockaddr_in src)
 {
-	printf("\n%s", line);
+	memset(packet, 0, MAXLEN);
     char * temp = (char *) malloc(15);
     char space[2];//break point  character
     strcpy(space," ");
@@ -427,7 +452,6 @@ void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockad
     strcat(packet,temp);
     strcat(packet,space);
     strcat(packet,localIP);
-    printf("\n%s",localIP);
     strcat(packet,space);
     sprintf(temp,"%d", htons(src.sin_port));
     strcat(packet,temp);
@@ -436,5 +460,6 @@ void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockad
     strcat(packet,temp);
     strcat(packet,space);
     strcat(packet,line);
+	printf("%s\n", packet);
 	free(temp);
 }
