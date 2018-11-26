@@ -28,7 +28,6 @@ void genPacketStruct(char * buffer);
 int main (int argc, char **argv)
 {
 	int port;
-	struct hostent *host_entry;
 	packetS = (struct packetStruct * )malloc(sizeof(struct packetStruct));
 	switch(argc)
 	{
@@ -59,8 +58,8 @@ int main (int argc, char **argv)
 		perror ("Can't bind name to socket");
 		exit(1);
 	}
-    
-    readClient();
+
+    readData();
     close(sd);
 	return(0);
 }
@@ -77,6 +76,7 @@ int readData()
 
     while(TRUE)
     {
+		memset(buf, 0, MAXLEN);
         bp = buf;
         bytes_to_read = MAXLEN;
 
@@ -85,24 +85,23 @@ int readData()
             bp += n;
             bytes_to_read -= n;
         }
+		printf("buffer:%s\n", buf);
         genPacketStruct(buf);
-        printf("Packet Data: %s\n",packetS->data);
-        startClient();
+        sendData();
     }
 	return 1;
 }
 
 void sendData()
 {
-	int n, bytes_to_read;
 	int port;
 	struct hostent	*hp;
 	struct sockaddr_in client;
-	char  *host, *bp, buf[MAXLEN];
+	char  *host;
     socklen_t client_len;
 
-	host =	inet_ntoa(packetS->dest);	// Host name
-	port =	packetS->destPrt;
+	host =	packetS->dest;	// Host name
+	port =	atoi(packetS->destPrt);
 
     // Store server's information
 	bzero((char *)&client, sizeof(client));
@@ -123,6 +122,7 @@ void sendData()
         perror("sendto failure");
         exit(1);
     }
+	printf("Sent syn %s, ack %s to %s %s\n", packetS->seqNum, packetS->ackNum, packetS->dest, packetS->destPrt);
 }
 
 void genPacketStruct(char *buffer)
@@ -154,7 +154,7 @@ void packetGen()
 	memset(packet, 0, MAXLEN);
     char space[2];//break point  character
     strcpy(space," ");
-    
+
     strcpy(packet, packetS->seqNum);
     strcat(packet, space);
     strcat(packet, packetS->ackNum);
@@ -170,5 +170,4 @@ void packetGen()
     strcat(packet, packetS->dataLength);
     strcat(packet, space);
     strcat(packet, packetS->data);
-	printf("%s\n", packet);
 }

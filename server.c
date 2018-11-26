@@ -66,7 +66,7 @@ char * localIPBuff;
 void serverListen (int	sd);
 int readClient(int sd);
 void startClient(struct sockaddr_in client);
-void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockaddr_in src);
+void packetGen(char * line, int fileLength);
 void genPacketStruct(char * buffer);
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: main
@@ -258,7 +258,7 @@ int readClient(int sd)
     if (strncmp(syn,packetS->data, 3) == 0)
     {
 		//SYNACK
-	    packetGen(synack, 0, client, server);
+	    packetGen(synack, 0);
 	    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
 	    {
 	        perror("sendto failure");
@@ -276,6 +276,7 @@ int readClient(int sd)
 	printf("ACK: %s\n", buf);
     while(TRUE)
     {
+		memset(buf, 0, MAXLEN);
         bp = buf;
         bytes_to_read = MAXLEN;
 
@@ -284,8 +285,9 @@ int readClient(int sd)
             bp += n;
             bytes_to_read -= n;
         }
+		printf("buffer%s\n", buf);
         genPacketStruct(buf);
-        printf("Packet Data: %s\n",packetS->data);
+        printf("Packet Data:%s\n",packetS->data);
         if (strncmp("SEND",packetS->data, 4) == 0)
         {
 			printf("In SEND\n");
@@ -331,11 +333,8 @@ int readClient(int sd)
 void startClient(struct sockaddr_in client)
 {
 	int n, bytes_to_read;
-	int port;
-	struct hostent	*hp;
-	char  *host, *bp, buf[MAXLEN];
+	char *bp, buf[MAXLEN];
     socklen_t client_len;
-	struct sockaddr_in clientServer;
 	char window[MAXLEN][MAXLEN];
 	char ack[4];
 	strcpy(ack, "ACK");
@@ -345,22 +344,7 @@ void startClient(struct sockaddr_in client)
 	strcpy(filename, strtok (packetS->data," "));
 	strcpy(filename, strtok (NULL, " "));
 
-	host =	inet_ntoa(client.sin_addr);	// Host name
-	port =	7008;
-
-    // Store server's information
-	bzero((char *)&clientServer, sizeof(clientServer));
-	clientServer.sin_family = AF_INET;
-	clientServer.sin_port = htons(port);
-
-	if ((hp = gethostbyname(host)) == NULL)
-	{
-		fprintf(stderr,"Can't get server's IP address\n");
-		exit(1);
-	}
-	bcopy(hp->h_addr, (char *)&clientServer.sin_addr, hp->h_length);
-
-    client_len= sizeof(clientServer);
+    client_len= sizeof(client);
 
 	if (strncmp("SEND",packetS->data, 4) == 0)
 	{
@@ -369,7 +353,7 @@ void startClient(struct sockaddr_in client)
 			bytes_to_read = MAXLEN;
 			memset(buf, 0, MAXLEN);
 			bp = buf;
-			while ((n = recvfrom (datasd, bp, bytes_to_read, 0, (struct sockaddr *)&clientServer, &client_len)) < bytes_to_read)
+			while ((n = recvfrom (datasd, bp, bytes_to_read, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
 			{
 				bp += n;
 				bytes_to_read -= n;
@@ -394,8 +378,8 @@ void startClient(struct sockaddr_in client)
 			}
 			printf("%s\n", packetS->seqNum);
 			ackNum = atoi(packetS->seqNum);
-			packetGen(ack, 0, client, server);
-		    if (sendto (datasd, packet, MAXLEN, 0, (struct sockaddr *)&clientServer, client_len) == -1)
+			packetGen(ack, 0);
+		    if (sendto (datasd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
 		    {
 		        perror("sendto failure");
 		        exit(1);
@@ -416,10 +400,10 @@ void genPacketStruct(char *buffer)
 
 	strcpy(packetS->seqNum,strtok(buffer," "));
 	strcpy(packetS->ackNum,strtok(NULL," "));
-	strcpy(packetS->dest,strtok(NULL," "));
-	strcpy(packetS->destPrt,strtok(NULL," "));
 	strcpy(packetS->src,strtok(NULL," "));
 	strcpy(packetS->srcPrt,strtok(NULL," "));
+	strcpy(packetS->dest,strtok(NULL," "));
+	strcpy(packetS->destPrt,strtok(NULL," "));
 	strcpy(packetS->dataLength,strtok(NULL," "));
 	strcpy(packetS->data,strtok(NULL," "));
 	char * temp = strtok(NULL," ");
@@ -434,7 +418,7 @@ void genPacketStruct(char *buffer)
 	printf("SeqNum: %s\n", packetS->seqNum);
 }
 
-void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockaddr_in src)
+void packetGen(char * line, int fileLength)
 {
 	memset(packet, 0, MAXLEN);
     char * temp = (char *) malloc(15);
@@ -446,15 +430,13 @@ void packetGen(char * line, int fileLength,struct sockaddr_in dest,struct sockad
     sprintf(temp , "%d", ackNum);//ackNum
     strcat(packet,temp);
     strcat(packet,space);
-    strcat(packet,inet_ntoa(dest.sin_addr));
+    strcat(packet,packetS->dest);
     strcat(packet,space);
-    sprintf(temp,"%d",htons( dest.sin_port));
-    strcat(packet,temp);
+    strcat(packet,packetS->destPrt);
     strcat(packet,space);
     strcat(packet,localIP);
     strcat(packet,space);
-    sprintf(temp,"%d", htons(src.sin_port));
-    strcat(packet,temp);
+    strcat(packet,packetS->srcPrt);
     strcat(packet,space);
     sprintf(temp,"%d", fileLength);
     strcat(packet,temp);

@@ -60,6 +60,7 @@
 #include <sys/time.h>
 
 #define SERVER_UDP_PORT		7005	// Default port
+#define ROUTER_UDP_PORT		7009	// Default port
 #define MAXLEN			2000  	// Buffer length
 #define TRUE	1
 void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in client);
@@ -67,8 +68,7 @@ void sendCommand(char *sbuf, int sd, struct sockaddr_in server, struct sockaddr_
 void startServer(char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server,struct sockaddr_in client);
 void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server, struct sockaddr_in client,struct sockaddr_in clientServer);
 int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength,struct sockaddr_in clientServer);
-char  *host;
-void packetGen(char * line, int fileLength, struct sockaddr_in server, struct sockaddr_in client);
+void packetGen(char * line, int fileLength, struct sockaddr_in src);
 void genPacketStruct(char * buffer);
 int countNewLine(FILE * fp);
 
@@ -78,6 +78,9 @@ char * localIPBuff;
 char localIP[16];
 int seqNum;
 int ackNum;
+char  *serverHost;
+char *routerHost;
+int serverPort;
 /*------------------------------------------------------------------------------------------------------------------
 -- FUNCTION: main
 --
@@ -123,19 +126,21 @@ int main (int argc, char **argv)
     ackNum = 0;
 	switch(argc)
 	{
-		case 2:
-			host =	argv[1];	// Host name
-			port =	SERVER_UDP_PORT;
-		break;
 		case 3:
-			host =	argv[1];
+			serverHost =	argv[1];	// Host name
+			port =	SERVER_UDP_PORT;
+			routerHost = argv[2];//Channel
+		break;
+		case 4:
+			serverHost =	argv[1];
 			port =	atoi(argv[2]);	// User specified port
+			routerHost = argv[3];//Channel
 		break;
 		default:
-			fprintf(stderr, "Usage: %s host [port]\n", argv[0]);
+			fprintf(stderr, "Usage: %s serverHost routerHost [serverPort]\n", argv[0]);
 			exit(1);
 	}
-
+	serverPort = port;
     // Create a datagram socket
 	if ((sd = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
 	{
@@ -146,9 +151,9 @@ int main (int argc, char **argv)
     // Store server's information
 	bzero((char *)&server, sizeof(server));
 	server.sin_family = AF_INET;
-	server.sin_port = htons(SERVER_UDP_PORT);
+	server.sin_port = htons(ROUTER_UDP_PORT);
 
-	if ((hp = gethostbyname(host)) == NULL)
+	if ((hp = gethostbyname(routerHost)) == NULL)
 	{
 		fprintf(stderr,"Can't get server's IP address\n");
 		exit(1);
@@ -216,7 +221,7 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
     server_len = sizeof(server);
 
     //Three way handshake
-    packetGen("SYN", 0, server, client);
+    packetGen("SYN", 0, client);
     if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
     {
         perror("sendto failure");
@@ -235,7 +240,7 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
     genPacketStruct(buf);
     if (strncmp("SYNACK",packetS->data, 6) == 0)
     {
-        packetGen("ACK", 0, server, client);
+        packetGen("ACK", 0, client);
         if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
         {
             perror("sendto failure");
@@ -256,7 +261,7 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
 		}
 		if (strncmp("CLOSE",sbuf, 5) == 0)
 		{
-			packetGen(sbuf, 0, server, client);
+			packetGen(sbuf, 0, client);
             if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
             {
                 perror("sendto failure");
@@ -267,7 +272,7 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
 		}
 		if (strncmp("EXIT",sbuf, 4) == 0)
 		{
-			packetGen(sbuf, 0, server, client);
+			packetGen(sbuf, 0, client);
             if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
             {
                 perror("sendto failure");
@@ -422,27 +427,11 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 ----------------------------------------------------------------------------------------------------------------------*/
 void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server, struct sockaddr_in client, struct sockaddr_in clientServer)
 {
-	struct	sockaddr_in serverClient;
     socklen_t server_len;
-	struct hostent	*hp;
-    int port  = 7006;
-
-    // Store server's information
-	bzero((char *)&serverClient, sizeof(serverClient));
-	serverClient.sin_family = AF_INET;
-	serverClient.sin_port = htons(port);
-
-	if ((hp = gethostbyname(host)) == NULL)
-	{
-		fprintf(stderr,"Can't get server's IP address\n");
-		exit(1);
-	}
-	bcopy(hp->h_addr, (char *)&serverClient.sin_addr, hp->h_length);
     server_len = sizeof(server);
     // Command send
-    packetGen(line,fileLength,server,client);
-    int ackWin[1] = {0};
-    printf("\n %s \n",packet);
+    packetGen(line,fileLength,client);
+    printf("command packet:%s\n",packet);
     if (sendto (clientSD, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
     {
         perror("sendto failure");
@@ -450,7 +439,7 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
     }
 
     memset(packet,0,MAXLEN);
-    readServer(sd, serverClient, command, filename, fileLength, clientServer);
+    readServer(sd, server, command, filename, fileLength, clientServer);
 
     close(sd);
     return;
@@ -482,11 +471,12 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 -- If the command is START the client will wait for the server to send over the file. If the file doesn't
 -- exist, it'll be created. If it does exist the content will be overwritten. It then closes the file and socket.
 ----------------------------------------------------------------------------------------------------------------------*/
-int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength, struct sockaddr_in clientServer)
+int readServer(int new_sd, struct sockaddr_in serverClient, char *command, char *filename, int fileLength, struct sockaddr_in clientServer)
 {
 	socklen_t client_len;
+	serverPort = 7006;
 
-    client_len= sizeof(client);printf("\n%d",fileLength);
+    client_len= sizeof(serverClient);
 
 	while(TRUE)
 	{
@@ -511,21 +501,20 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
 				int ackWin[MAXLEN];
 
 				double  windowSize = ceil(fileLength/1024.0);
-				printf("\n %f",windowSize);
+				printf("%f\n",windowSize);
 				for(int index = 0;index < windowSize;index++)
 				{
                     memset(line,0,fileLength);
 					fread(line, 1024, 1, fp);
-					packetGen(line,1024,client,clientServer);
+					packetGen(line,1024,clientServer);
 					strcpy(window[index],packet);
 					ackWin[index] = 0;
-					printf("\n%s",window[index]);
                     seqNum++;
 				}
 				fclose(fp);
                 fd_set readFDS;
                 struct timeval timeOut;
-                
+
                 FD_SET(new_sd,&readFDS);
                 int nextAck = 0;
                 int selectVal;
@@ -539,7 +528,7 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
 				    {
                         if(ackWin[index] == 0)
                         {
-                            if (sendto (new_sd, window[index], MAXLEN, 0,(struct sockaddr *)&client, client_len) == -1)
+                            if (sendto (new_sd, window[index], MAXLEN, 0,(struct sockaddr *)&serverClient, client_len) == -1)
     				    	{
                                 perror ("sendto error");
                                 exit(1);
@@ -553,8 +542,6 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
                         FD_ZERO(&readFDS);
                         FD_SET(new_sd,&readFDS);
                         selectVal = select(new_sd+1,&readFDS,0,0,&timeOut);
-                        printf("%d \n",selectVal);
-                        perror("select() failure");
                         if(selectVal != 0)
                         {
                             printf("Select found\n");
@@ -562,7 +549,7 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
                             {
                                 bp = buf;
                                 bytes_to_read = MAXLEN;
-                                while ((n = recvfrom (new_sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+                                while ((n = recvfrom (new_sd, bp, MAXLEN, 0, (struct sockaddr *)&serverClient, &client_len)) < bytes_to_read)
                                 {
                                     bp += n;
                                     bytes_to_read -= n;
@@ -581,19 +568,15 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
                         }
                         else
                         {
-                            printf("Else break\n");
                             loop = 0;
                         }
-                        printf("End of while 1 \n");
-                        
-                        
                     }
                     index = nextAck;
                 }
                 printf("Send FIN\n");
                 seqNum = 0;
-                packetGen("FIN", 0, client, clientServer);
-                if (sendto (new_sd, packet, MAXLEN, 0,(struct sockaddr *)&client, client_len) == -1)
+                packetGen("FIN", 0, clientServer);
+                if (sendto (new_sd, packet, MAXLEN, 0,(struct sockaddr *)&serverClient, client_len) == -1)
     			{
                    perror ("sendto error");
                    exit(1);
@@ -606,33 +589,33 @@ int readServer(int new_sd, struct sockaddr_in client, char *command, char *filen
 	}
 }
 
-void packetGen(char * line, int fileLength,struct sockaddr_in server,struct sockaddr_in client)
+void packetGen(char * line, int fileLength, struct sockaddr_in src)
 {
-    memset(packet, 0 , MAXLEN);    
+    memset(packet, 0 , MAXLEN);
     char * temp = (char *) malloc(15);
     char space[2];//break point  character
     strcpy(space," ");
+
     sprintf (temp , "%d" ,seqNum);//seqNum
     strcpy(packet,temp);
     strcat(packet,space);
     sprintf(temp , "%d", ackNum);//ackNum
     strcat(packet,temp);
     strcat(packet,space);
-    strcat(packet,inet_ntoa(server.sin_addr));
+    strcat(packet,serverHost);
     strcat(packet,space);
-    sprintf(temp,"%d",htons( server.sin_port));
-    strcat(packet,temp);
+	sprintf(temp , "%d", serverPort);//dest port
+	strcat(packet,temp);
     strcat(packet,space);
     strcat(packet,localIP);
     strcat(packet,space);
-    sprintf(temp,"%d", htons(client.sin_port));
+    sprintf(temp,"%d", htons(src.sin_port));
     strcat(packet,temp);
     strcat(packet,space);
-    sprintf(temp,"%d", fileLength);
+    sprintf(temp,"%d", 0);
     strcat(packet,temp);
     strcat(packet,space);
     strcat(packet,line);
-    printf("\nPacket Value: %s \n",packet);
 }
 
 void genPacketStruct(char *buffer)
