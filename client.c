@@ -220,32 +220,55 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
     char	buf[MAXLEN];
     server_len = sizeof(server);
 
-    //Three way handshake
-    packetGen("SYN", 0, client);
+	fd_set readFDS;
+	struct timeval timeOut;
+
+	FD_SET(sd,&readFDS);
+	int selectVal;
+	int loop = 1;
+
+	//Three way handshake
+	packetGen("SYN", 0, client);
+
+	while(loop)
+	{
+		if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
+	    {
+	        perror("sendto failure");
+	        exit(1);
+	    }
+		timeOut.tv_sec = 0;
+		timeOut.tv_usec = 200000;
+		FD_ZERO(&readFDS);
+		FD_SET(sd,&readFDS);
+		selectVal = select(sd+1,&readFDS,0,0,&timeOut);
+		if(selectVal != 0)
+		{
+			printf("Select found\n");
+			if(FD_ISSET(sd,&readFDS))
+			{
+				bp = buf;
+				bytes_to_read = MAXLEN;
+				//SYNACK
+			    while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&server, &server_len)) < bytes_to_read)
+			    {
+			        bp += n;
+			        bytes_to_read -= n;
+			    }
+				printf("%s \n",buf);
+				genPacketStruct(buf);
+				if (strncmp("SYNACK",packetS->data, 6) == 0)
+				{
+					loop = 0;
+				}
+			}
+		}
+	}
+    packetGen("ACK", 0, client);
     if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
     {
         perror("sendto failure");
         exit(1);
-    }
-
-	bp = buf;
-    bytes_to_read = MAXLEN;
-    //SYNACK
-    while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&server, &server_len)) < bytes_to_read)
-    {
-        bp += n;
-        bytes_to_read -= n;
-    }
-	printf("%s\n", buf);
-    genPacketStruct(buf);
-    if (strncmp("SYNACK",packetS->data, 6) == 0)
-    {
-        packetGen("ACK", 0, client);
-        if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
-        {
-            perror("sendto failure");
-            exit(1);
-        }
     }
 
 	while (TRUE)
@@ -427,16 +450,57 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 ----------------------------------------------------------------------------------------------------------------------*/
 void clientListen (int	sd, char *command, char *filename, int fileLength, char *line, int clientSD, struct sockaddr_in server, struct sockaddr_in client, struct sockaddr_in clientServer)
 {
+	char	*bp;
+	int	n, bytes_to_read;
+    char	buf[MAXLEN];
+
     socklen_t server_len;
     server_len = sizeof(server);
     // Command send
     packetGen(line,fileLength,client);
     printf("command packet:%s\n",packet);
-    if (sendto (clientSD, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
-    {
-        perror("sendto failure");
-        exit(1);
-    }
+
+	fd_set readFDS;
+	struct timeval timeOut;
+
+	FD_SET(sd,&readFDS);
+	int selectVal;
+	int loop = 1;
+
+	while(loop)
+	{
+		if (sendto (clientSD, packet, MAXLEN, 0, (struct sockaddr *)&server, server_len) == -1)
+	    {
+	        perror("sendto failure");
+	        exit(1);
+	    }
+		timeOut.tv_sec = 0;
+		timeOut.tv_usec = 200000;
+		FD_ZERO(&readFDS);
+		FD_SET(clientSD,&readFDS);
+		selectVal = select(clientSD+1,&readFDS,0,0,&timeOut);
+		if(selectVal != 0)
+		{
+			printf("Select found\n");
+			if(FD_ISSET(clientSD,&readFDS))
+			{
+				bp = buf;
+				bytes_to_read = MAXLEN;
+				//Command ACK
+			    while ((n = recvfrom (clientSD, bp, MAXLEN, 0, (struct sockaddr *)&server, &server_len)) < bytes_to_read)
+			    {
+			        bp += n;
+			        bytes_to_read -= n;
+			    }
+				printf("%s \n",buf);
+				genPacketStruct(buf);
+				if (strncmp("ACK",packetS->data, 3) == 0)
+				{
+					loop = 0;
+				}
+			}
+		}
+	}
 
     memset(packet,0,MAXLEN);
     readServer(sd, server, command, filename, fileLength, clientServer);
@@ -523,11 +587,12 @@ int readServer(int new_sd, struct sockaddr_in serverClient, char *command, char 
                 int loop;
                 while(index < windowSize)
                 {
-                    loop = 1;
+					loop = 1;
 				    for(; index < slidingWindow;index++)
 				    {
                         if(ackWin[index] == 0)
                         {
+							printf("Sending:%d\n", index);
                             if (sendto (new_sd, window[index], MAXLEN, 0,(struct sockaddr *)&serverClient, client_len) == -1)
     				    	{
                                 perror ("sendto error");
@@ -538,7 +603,7 @@ int readServer(int new_sd, struct sockaddr_in serverClient, char *command, char 
                     while(loop)
                     {
                         timeOut.tv_sec = 0;
-                        timeOut.tv_usec = 2000;
+                        timeOut.tv_usec = 200000;
                         FD_ZERO(&readFDS);
                         FD_SET(new_sd,&readFDS);
                         selectVal = select(new_sd+1,&readFDS,0,0,&timeOut);
@@ -556,14 +621,39 @@ int readServer(int new_sd, struct sockaddr_in serverClient, char *command, char 
                                 }
                                 printf("%s \n",buf);
                                 genPacketStruct(buf);
-                                if(atoi(packetS->ackNum) == nextAck)
-                                {
-                                    nextAck++;
-                                    slidingWindow++;
-                                }
                                 printf("Acked Data\n");
                                 printf("%s \n",packetS->ackNum);
                                 ackWin[atoi(packetS->ackNum)] = 1;
+
+								if(atoi(packetS->ackNum) == nextAck)
+                                {
+									printf("windowSize:%f\n", windowSize);
+									printf("Sliding Window Before:%d\n", slidingWindow);
+									nextAck = windowSize;
+									for(int i = 0; i < windowSize; i++)
+									{
+										if (ackWin[i] == 0)
+										{
+											nextAck = i;
+											i = windowSize;
+										}
+									}
+									printf("nextAck:%d\n", nextAck);
+
+                                    slidingWindow = ceil(windowSize/2.0);
+									for (int i = ceil(windowSize/2.0); i < windowSize; i++)
+									{
+										if (ackWin[i - (int)ceil(windowSize/2.0)] == 1)
+										{
+											slidingWindow++;
+										}
+										else
+										{
+											i = windowSize;
+										}
+									}
+									printf("Sliding Window After:%d\n", slidingWindow);
+                                }
                             }
                         }
                         else
@@ -571,8 +661,12 @@ int readServer(int new_sd, struct sockaddr_in serverClient, char *command, char 
                             loop = 0;
                         }
                     }
-                    index = nextAck;
+					index = nextAck;
                 }
+
+
+
+				
                 printf("Send FIN\n");
                 seqNum = 0;
                 packetGen("FIN", 0, clientServer);

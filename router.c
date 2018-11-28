@@ -9,6 +9,7 @@
 #include <string.h>
 #include <netdb.h>
 #include <errno.h>
+#include <sys/time.h>
 #include "router_packet.h"
 
 #define TRUE	1
@@ -19,6 +20,8 @@ struct packetStruct *packetS;
 char packet[MAXLEN];
 struct	sockaddr_in server;
 int	sd;
+int dropRate = 0;
+int delay;
 
 int readData();
 void sendData();
@@ -27,18 +30,16 @@ void genPacketStruct(char * buffer);
 
 int main (int argc, char **argv)
 {
-	int port;
+	int port = SERVER_PORT;
 	packetS = (struct packetStruct * )malloc(sizeof(struct packetStruct));
 	switch(argc)
 	{
-		case 1:
-			port = SERVER_PORT;	// Default port
-		break;
-		case 2:
-			port = atoi(argv[1]);	//User specified port
+		case 3:
+			dropRate = atoi(argv[1]);	// Default port
+			delay = atoi(argv[2]);
 		break;
 		default:
-			fprintf(stderr, "Usage: %s [port]\n", argv[0]);
+			fprintf(stderr, "Usage: %s dropRate\n", argv[0]);
 			exit(1);
    	}
 	// Create a datagram socket
@@ -71,6 +72,13 @@ int readData()
     char	buf[MAXLEN];
 	struct	sockaddr_in client;
 	socklen_t client_len;
+	int dropValue;
+	char window[MAXLEN][MAXLEN];
+	double timeStamps[MAXLEN];
+	double time_in_mill;
+	struct timeval  tv;
+	int index = 0;
+	int startIndex = 0;
 
     client_len = sizeof(client);
 
@@ -85,9 +93,32 @@ int readData()
             bp += n;
             bytes_to_read -= n;
         }
-		printf("buffer:%s\n", buf);
-        genPacketStruct(buf);
-        sendData();
+		strcpy(window[index], buf);
+		gettimeofday(&tv, NULL);
+		time_in_mill = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 ; // convert tv_sec & tv_usec to millisecond
+		timeStamps[index] = time_in_mill;
+ 		index++;
+
+		for (int i = startIndex; i < index; i++)
+		{
+			gettimeofday(&tv, NULL);
+			time_in_mill = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 ; // convert tv_sec & tv_usec to millisecond
+			if (time_in_mill - timeStamps[i] > delay)
+			{
+				startIndex++;
+				dropValue = (rand() % 100) + 1;
+
+				if (dropValue > dropRate)
+				{
+					genPacketStruct(window[i]);
+			        sendData();
+				}
+				else
+				{
+					printf("Dropped syn %s, ack %s for %s %s\n", packetS->seqNum, packetS->ackNum, packetS->dest, packetS->destPrt);
+				}
+			}
+		}
     }
 	return 1;
 }

@@ -62,9 +62,10 @@ int seqNum;
 int ackNum;
 char localIP[16];
 char * localIPBuff;
+int sd;
 
-void serverListen (int	sd);
-int readClient(int sd);
+void serverListen ();
+int readClient();
 void startClient(struct sockaddr_in client);
 void packetGen(char * line, int fileLength);
 void genPacketStruct(char * buffer);
@@ -91,7 +92,7 @@ void genPacketStruct(char * buffer);
 ----------------------------------------------------------------------------------------------------------------------*/
 int main (int argc, char **argv)
 {
-	int	sd, port;
+	int port;
 	char hostbuffer[256];
 	struct hostent *host_entry;
 	packetS = (struct packetStruct * )malloc(sizeof(struct packetStruct));
@@ -153,7 +154,7 @@ int main (int argc, char **argv)
 		exit(1);
 	}
 
-	serverListen(sd);
+	serverListen();
 	return(0);
 }
 
@@ -178,11 +179,11 @@ int main (int argc, char **argv)
 -- The server listens for connections from clients. Once a connection is received, readClient is called.
 -- If readClient returns 1, the server will exit.
 ----------------------------------------------------------------------------------------------------------------------*/
-void serverListen (int	sd)
+void serverListen ()
 {
 	while (TRUE)
 	{
-		int retnum = readClient(sd);
+		int retnum = readClient();
 
 		//EXIT was sent
 		if (retnum == 1)
@@ -221,7 +222,7 @@ void serverListen (int	sd)
 -- If the client sends CLOSE, the program closes the socket and returns 0.
 -- If the client sends EXIT, the program closes the socket and returns 1.
 ----------------------------------------------------------------------------------------------------------------------*/
-int readClient(int sd)
+int readClient()
 {
 	char	*bp;
 	int	n, bytes_to_read;
@@ -246,7 +247,7 @@ int readClient(int sd)
     //Three way handshake
 	bp = buf;
     bytes_to_read = MAXLEN;
-
+	printf("Before SYN \n");
     //SYN
     while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
     {
@@ -254,26 +255,51 @@ int readClient(int sd)
         bytes_to_read -= n;
     }
 	printf("%s\n", buf);
-    genPacketStruct(buf);
-    if (strncmp(syn,packetS->data, 3) == 0)
-    {
-		//SYNACK
-	    packetGen(synack, 0);
-	    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
+	genPacketStruct(buf);
+	int loop = 1;
+	while(loop)
+	{
+
+
+	    if (strncmp(syn,packetS->data, 3) == 0)
 	    {
-	        perror("sendto failure");
-	        exit(1);
-	    }
+			//SYNACK
+		    packetGen(synack, 0);
+		    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
+		    {
+	        	perror("sendto failure");
+	        	exit(1);
+	    	}
+		}
+    	//ACK
+		bp = buf;
+    	bytes_to_read = MAXLEN;
+    	while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+    	{
+        	bp += n;
+        	bytes_to_read -= n;
+    	}
+		printf("%s\n", buf);
+	    genPacketStruct(buf);
+		if (strncmp("ACK",packetS->data, 3) == 0)
+		{
+			loop = 0;
+		}
+		if (strncmp("SEND",packetS->data, 4) == 0)
+		{
+			loop = 0;
+			printf("In SEND\n");
+			packetGen(ack, 0);
+			if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
+			{
+				perror("sendto failure");
+				exit(1);
+			}
+
+			startClient(client);
+		}
+
 	}
-    //ACK
-	bp = buf;
-    bytes_to_read = MAXLEN;
-    while ((n = recvfrom (sd, bp, MAXLEN, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
-    {
-        bp += n;
-        bytes_to_read -= n;
-    }
-	printf("ACK: %s\n", buf);
     while(TRUE)
     {
 		memset(buf, 0, MAXLEN);
@@ -291,6 +317,13 @@ int readClient(int sd)
         if (strncmp("SEND",packetS->data, 4) == 0)
         {
 			printf("In SEND\n");
+			packetGen(ack, 0);
+			if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
+			{
+				perror("sendto failure");
+				exit(1);
+			}
+
 			startClient(client);
         }
         else if (strncmp("CLOSE",packetS->data, 5) == 0)
@@ -338,6 +371,8 @@ void startClient(struct sockaddr_in client)
 	char window[MAXLEN][MAXLEN];
 	char ack[4];
 	strcpy(ack, "ACK");
+	char finack[7];
+	strcpy(finack, "FINACK");
 	int maxIndex = 0;
 
 	char filename[MAXLEN];
@@ -350,44 +385,109 @@ void startClient(struct sockaddr_in client)
 	{
 		while (TRUE)
 		{
-			bytes_to_read = MAXLEN;
-			memset(buf, 0, MAXLEN);
-			bp = buf;
-			while ((n = recvfrom (datasd, bp, bytes_to_read, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+			fd_set readFDS;
+			struct timeval timeOut;
+			int max_sd = sd;
+
+			FD_SET(sd,&readFDS);
+			FD_SET(datasd,&readFDS);
+			int selectVal;
+			int loop = 1;
+			if (datasd > sd)
 			{
-				bp += n;
-				bytes_to_read -= n;
+				max_sd = datasd;
 			}
-			printf("%s\n", buf);
-			genPacketStruct(buf);
-			//FIN sent
-			if (strncmp("FIN",packetS->data, 3) == 0)
+			printf("Outside loop\n");
+			while(loop)
 			{
-				printf("FIN sent.\n");
-				printf("%s\n", filename);
-				FILE *fp = fopen(filename, "wb+");
-				if (fp != NULL)
+				timeOut.tv_sec = 0;
+				timeOut.tv_usec = 2000000;
+				FD_ZERO(&readFDS);
+				FD_SET(sd,&readFDS);
+				FD_SET(datasd,&readFDS);
+				selectVal = select(max_sd+1,&readFDS,0,0,&timeOut);
+				if(selectVal != 0)
 				{
-					for (int i = 0; i <= maxIndex; i++)
+					printf("Select found\n");
+					if(FD_ISSET(datasd,&readFDS))
 					{
-						fputs(window[i], fp);
+						printf("In datasd\n");
+						bytes_to_read = MAXLEN;
+						memset(buf, 0, MAXLEN);
+						bp = buf;
+						while ((n = recvfrom (datasd, bp, bytes_to_read, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+						{
+							bp += n;
+							bytes_to_read -= n;
+						}
+						printf("%s\n", buf);
+						genPacketStruct(buf);
+						//FIN sent
+						if (strncmp("FIN",packetS->data, 3) == 0)
+						{
+							printf("FIN sent.\n");
+
+							printf("%s\n", filename);
+							FILE *fp = fopen(filename, "wb+");
+							if (fp != NULL)
+							{
+								for (int i = 0; i <= maxIndex; i++)
+								{
+									fputs(window[i], fp);
+								}
+								fclose(fp);
+							}
+							return;
+						}
+						printf("%s\n", packetS->seqNum);
+						ackNum = atoi(packetS->seqNum);
+						packetGen(ack, 0);
+					    if (sendto (datasd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
+					    {
+					        perror("sendto failure");
+					        exit(1);
+					    }
+						strcpy(window[ackNum], packetS->data);
+						if (ackNum > maxIndex)
+						{
+							maxIndex = ackNum;
+						}
 					}
-					fclose(fp);
+					else if(FD_ISSET(sd,&readFDS))
+					{
+						printf("sd\n");
+						bytes_to_read = MAXLEN;
+						memset(buf, 0, MAXLEN);
+						bp = buf;
+						while ((n = recvfrom (sd, bp, bytes_to_read, 0, (struct sockaddr *)&client, &client_len)) < bytes_to_read)
+						{
+							bp += n;
+							bytes_to_read -= n;
+						}
+						printf("%s\n", buf);
+						genPacketStruct(buf);
+						packetGen(ack, 0);
+					    if (sendto (sd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
+					    {
+					        perror("sendto failure");
+					        exit(1);
+					    }
+					}
 				}
-				return;
-			}
-			printf("%s\n", packetS->seqNum);
-			ackNum = atoi(packetS->seqNum);
-			packetGen(ack, 0);
-		    if (sendto (datasd, packet, MAXLEN, 0, (struct sockaddr *)&client, client_len) == -1)
-		    {
-		        perror("sendto failure");
-		        exit(1);
-		    }
-			strcpy(window[ackNum], packetS->data);
-			if (ackNum > maxIndex)
-			{
-				maxIndex = ackNum;
+				else
+				{
+					printf("%s\n", filename);
+					FILE *fp = fopen(filename, "wb+");
+					if (fp != NULL)
+					{
+						for (int i = 0; i <= maxIndex; i++)
+						{
+							fputs(window[i], fp);
+						}
+						fclose(fp);
+					}
+					return;
+				}
 			}
 		}
 	}
