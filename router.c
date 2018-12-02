@@ -1,3 +1,29 @@
+/*---------------------------------------------------------------------------------------
+--	SOURCE FILE:		router.c - A simple file transfer system
+--
+--	PROGRAM:		router.exe
+--
+--	FUNCTIONS:
+--		int readData();
+--      void sendData();
+--      void packetGen();
+--      void genPacketStruct(char * buffer);
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+--
+--	DESIGNERS:		Haley Booker
+--
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
+--
+--	NOTES:
+--	The router program of a file transfer system. 
+--  Receives data from either client or server, converts received buffer to packetStruct,
+--  evaluates where to send, rebuilds buffer data and sends to either server or client.
+---------------------------------------------------------------------------------------*/
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -27,7 +53,25 @@ int readData();
 void sendData();
 void packetGen();
 void genPacketStruct(char * buffer);
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: main
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Haley Booker
+--
+--	PROGRAMMERS:	Haley Booker
+--
+-- INTERFACE: int argc, char **argv
+--
+-- RETURNS: An integer used to define if an error occurs
+--
+-- NOTES:
+-- The start point of the program. Initializes socket and initiates read
+----------------------------------------------------------------------------------------------------------------------*/
 int main (int argc, char **argv)
 {
 	int port = SERVER_PORT;
@@ -64,7 +108,25 @@ int main (int argc, char **argv)
     close(sd);
 	return(0);
 }
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: readData
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Matthew Baldock
+--
+-- INTERFACE: N/A
+--
+-- RETURNS: void
+--
+-- NOTES:
+-- Reads data from either client or server, analyzes where to send received data and proceeds
+----------------------------------------------------------------------------------------------------------------------*/
 int readData()
 {
 	char	*bp;
@@ -122,7 +184,25 @@ int readData()
     }
 	return 1;
 }
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: sendData
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Matthew Baldock
+--
+-- INTERFACE: N/A
+--
+-- RETURNS: void
+--
+-- NOTES:
+-- Sends data to either server or client
+----------------------------------------------------------------------------------------------------------------------*/
 void sendData()
 {
 	int port;
@@ -155,7 +235,26 @@ void sendData()
     }
 	printf("Sent syn %s, ack %s to %s %s\n", packetS->seqNum, packetS->ackNum, packetS->dest, packetS->destPrt);
 }
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: genPacketStruct
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
+--
+-- INTERFACE: void genPacketStruct(char *buffer)
+-- char *buffer: Received buffer variable
+--
+-- RETURNS: voids
+--
+-- NOTES:
+-- function creates packet struck out of the buffer data
+----------------------------------------------------------------------------------------------------------------------*/
 void genPacketStruct(char *buffer)
 {
 	free(packetS);
@@ -179,7 +278,27 @@ void genPacketStruct(char *buffer)
 		temp = strtok(NULL," ");
 	}
 }
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: packetGen
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
+--
+-- INTERFACE: void packetGen(char * line, int fileLength)
+-- char * line: file data read in 
+-- int fileLength: length of line
+--
+-- RETURNS: void
+--
+-- NOTES:
+-- function creates a buffer line to be sent out from the packet struct, handles data and acks, and handshake
+----------------------------------------------------------------------------------------------------------------------*/
 void packetGen()
 {
 	memset(packet, 0, MAXLEN);

@@ -14,7 +14,14 @@
 --
 --	DATE:			October 1, 2018
 --
---	REVISIONS:		(Date and Description)
+--	REVISIONS:		December 1, 2018
+--  FUNCTIONS Added:
+--  void packetGen(char * line, int fileLength);
+--  void genPacketStruct(char * buffer);
+--
+--  Client program now utilizes UDP instead of TCP. Implements handshake of SYN,SYNACK,ACK.
+--  Waits for ACKS to Commands and Data Sent
+--  Sends FIN when finished with Data and waits for FINACK
 --
 --	DESIGNERS:		Haley Booker
 --
@@ -70,7 +77,7 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength,struct sockaddr_in clientServer);
 void packetGen(char * line, int fileLength, struct sockaddr_in src);
 void genPacketStruct(char * buffer);
-int countNewLine(FILE * fp);
+
 
 struct packetStruct *packetS;
 char packet[MAXLEN];
@@ -86,12 +93,12 @@ int serverPort;
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS:       December 1, 2018
+-- Function now passes server struct and client struct to client connection
 --
 -- DESIGNER: Haley Booker
 --
---	PROGRAMMERS:	Haley Booker
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
 --
 -- INTERFACE: int main (int argc, char **argv)
 -- int argc: The number of command line arguments
@@ -185,12 +192,17 @@ int main (int argc, char **argv)
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS:       December 1, 2018
+-- INTERFACE Additions: struct sockaddr_in server,struct sockaddr_in client
+-- struct sockaddr_in server: Information about the server handshake sockets
+-- struct sockaddr_in client: Information about the client handshake sockets
+-- 
+-- Function now initiates connection with a handshake. Sends SYN, waits for SYNACK, sends ACK
+-- Passes client struct and server struct to sendCommand
 --
 -- DESIGNER: Haley Booker
 --
---	PROGRAMMERS:	Haley Booker
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
 --
 -- INTERFACE: void client(int sd)
 -- int sd: The socket descriptor
@@ -312,12 +324,16 @@ void clientConnection(int sd, struct sockaddr_in server, struct sockaddr_in clie
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS:       December 1, 2018
+-- INTERFACE Additions: struct sockaddr_in server,struct sockaddr_in client
+-- struct sockaddr_in server: Information about the server handshake sockets
+-- struct sockaddr_in client: Information about the client handshake sockets
+-- 
+-- Now passes server struct and client struct to startServer
 --
 -- DESIGNER: Haley Booker
 --
---	PROGRAMMERS:	Haley Booker
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
 --
 -- INTERFACE: void sendCommand(char *sbuf, int sd)
 -- char *sbuf: The command line "SEND [filename] [filelength]"
@@ -377,8 +393,12 @@ void sendCommand(char *sbuf, int sd, struct sockaddr_in server,struct sockaddr_i
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS: December 1, 2018
+-- INTERFACE Additions: struct sockaddr_in server, struct sockaddr_in client
+-- struct sockaddr_in server: Information about the server handshake sockets
+-- struct sockaddr_in client: Information about the client handshake sockets
+-- 
+-- Now passes clientServer struct, server struct and client struct to clientListen
 --
 -- DESIGNER: Haley Booker
 --
@@ -429,12 +449,17 @@ void startServer(char *command, char *filename, int fileLength, char *line, int 
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS: December 1, 2018
+-- INTERFACE Additions: struct sockaddr_in server, struct sockaddr_in client, struct sockaddr_in clientServer
+-- struct sockaddr_in server: Information about the server handshake sockets
+-- struct sockaddr_in client: Information about the client handshake sockets
+-- struct sockaddr_in clientServer: Information about the client data socket
+-- 
+-- Function now waits for ACK on command sent
 --
 -- DESIGNER: Haley Booker
 --
---	PROGRAMMERS:	Haley Booker
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
 --
 -- INTERFACE: void clientListen (int sd, char *command, char *filename, int fileLength, char *line, int clientSD)
 -- int	sd: The socket descriptor of the client servers
@@ -514,12 +539,15 @@ void clientListen (int	sd, char *command, char *filename, int fileLength, char *
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS: December 1, 2018
+-- INTERFACE Additions:  struct sockaddr_in clientServer 
+-- struct sockaddr_in clientServer: Information on the client receive socket
 --
+-- function now handles a sliding window in send, waits for acks to the data sent
+-- 
 -- DESIGNER: Haley Booker
 --
---	PROGRAMMERS:	Haley Booker
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
 --
 -- INTERFACE: int readServer(int new_sd, struct sockaddr_in client, char *command, char *filename, int fileLength)
 -- int new_sd: The newly opened socket
@@ -560,7 +588,6 @@ int readServer(int new_sd, struct sockaddr_in serverClient, char *command, char 
                 char	buf[MAXLEN];
 				char line[fileLength];
                 line[fileLength-1] = 0;
-				//int newlines = countNewLine(fp);
 				char window[MAXLEN][MAXLEN];
 				int ackWin[MAXLEN];
 
@@ -682,7 +709,27 @@ int readServer(int new_sd, struct sockaddr_in serverClient, char *command, char 
 		return 0;
 	}
 }
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: packetGen
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Matthew Baldock
+--
+-- INTERFACE: void packetGen(char * line, int fileLength)
+-- char * line: file data read in 
+-- int fileLength: length of line
+--
+-- RETURNS: void
+--
+-- NOTES:
+-- function creates a buffer line to be sent out from the packet struct, handles data and acks, and handshake
+----------------------------------------------------------------------------------------------------------------------*/
 void packetGen(char * line, int fileLength, struct sockaddr_in src)
 {
     memset(packet, 0 , MAXLEN);
@@ -711,7 +758,26 @@ void packetGen(char * line, int fileLength, struct sockaddr_in src)
     strcat(packet,space);
     strcat(packet,line);
 }
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: genPacketStruct
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Matthew Baldock
+--
+-- INTERFACE: void genPacketStruct(char *buffer)
+-- char *buffer: Received buffer variable
+--
+-- RETURNS: voids
+--
+-- NOTES:
+-- function creates packet struck out of the buffer data
+----------------------------------------------------------------------------------------------------------------------*/
 void genPacketStruct(char *buffer)
 {
     free(packetS);
@@ -735,18 +801,3 @@ void genPacketStruct(char *buffer)
 	}
 }
 
-int countNewLine(FILE * fp)
-{
-    int count = 0;
-    char fileChar;
-    while(fileChar != EOF)
-    {
-	fileChar = getc(fp);
-	if(fileChar == '\n')
-	{
-	    count++;
-	}
-    }
-    return count;
-
-}

@@ -11,7 +11,14 @@
 --
 --	DATE:			October 1, 2018
 --
---	REVISIONS:		(Date and Description)
+--	REVISIONS:		December 1, 2018
+--  FUNCTIONS Added:
+--  void packetGen(char * line, int fileLength);
+--  void genPacketStruct(char * buffer);
+--   
+--  Sever program now utilizes UDP instead of TCP. Implements handshake of SYN,SYNACK,ACK.
+--  ACKS Commands and Data
+--  When FIN received server writes received data 
 --
 --	DESIGNERS:		Haley Booker
 --
@@ -74,8 +81,8 @@ void genPacketStruct(char * buffer);
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS:       December 1, 2018
+-- Sockets are now UDP instead of TCP
 --
 -- DESIGNER: Haley Booker
 --
@@ -163,8 +170,8 @@ int main (int argc, char **argv)
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS:       December 1, 2018
+-- Removed function variables
 --
 -- DESIGNER: Haley Booker
 --
@@ -200,12 +207,15 @@ void serverListen ()
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS:       December 1, 2018
+-- Removed function variables
+-- 
+-- Function now initializes connection with handshake. Waits for SYN, sends SYNACK, waits for ACK
+-- Moves on if receives SEND (ACK dropped or missing)
 --
 -- DESIGNER: Haley Booker
 --
---	PROGRAMMERS:	Haley Booker
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
 --
 -- INTERFACE: int readClient(int sd, struct sockaddr_in client)
 -- int sd: The socket descriptor of the client
@@ -344,12 +354,16 @@ int readClient()
 --
 --	DATE:			October 1, 2018
 --
--- REVISIONS: (Date and Description)
--- N/A
+-- REVISIONS:       December 1, 2018
+-- Removed function variable char * line
+-- 
+-- Function now sends ACKS to the data received. Times out if socket is inactive for 2 seconds.
+-- When FIN is received sends FINACK and then writes data to file.
+--
 --
 -- DESIGNER: Haley Booker
 --
---	PROGRAMMERS:	Haley Booker
+--	PROGRAMMERS:	Haley Booker, Matthew Baldock
 --
 -- INTERFACE: void startClient(char *line, struct sockaddr_in client)
 -- char *line: The line containing [COMMAND] [filename] [filelength]
@@ -492,7 +506,26 @@ void startClient(struct sockaddr_in client)
 		}
 	}
 }
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: genPacketStruct
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Matthew Baldock
+--
+-- INTERFACE: void genPacketStruct(char *buffer)
+-- char *buffer: Received buffer variable
+--
+-- RETURNS: None return
+--
+-- NOTES:
+-- function creates packet struck out of the buffer data
+----------------------------------------------------------------------------------------------------------------------*/
 void genPacketStruct(char *buffer)
 {
 	free(packetS);
@@ -517,7 +550,27 @@ void genPacketStruct(char *buffer)
 	}
 	printf("SeqNum: %s\n", packetS->seqNum);
 }
-
+/*------------------------------------------------------------------------------------------------------------------
+-- FUNCTION: packetGen
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Matthew Baldock
+--
+-- INTERFACE: void packetGen(char * line, int fileLength)
+-- char * line: file data read in 
+-- int fileLength: length of line
+--
+-- RETURNS: None 
+--
+-- NOTES:
+-- function creates a buffer line to be sent out from the packet struct, handles data and acks, and handshake
+----------------------------------------------------------------------------------------------------------------------*/
 void packetGen(char * line, int fileLength)
 {
 	memset(packet, 0, MAXLEN);

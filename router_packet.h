@@ -1,5 +1,22 @@
 #ifndef ROUTER_PACKET_
 #define ROUTER_PACKET_
+/*------------------------------------------------------------------------------------------------------------------
+-- PROTORYPE: struct packetStruct
+--
+--	DATE:			December 1, 2018
+--
+-- REVISIONS: (Date and Description)
+-- N/A
+--
+-- DESIGNER: Matthew Baldock
+--
+--	PROGRAMMERS:	Matthew Baldock
+--
+--
+--
+-- NOTES:
+-- Header file definition 
+----------------------------------------------------------------------------------------------------------------------*/
 struct packetStruct
 {
     char dataLength[5];
